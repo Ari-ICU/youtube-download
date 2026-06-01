@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Clock, Eye, ExternalLink } from "lucide-react";
+import { Clock, Eye, ExternalLink, Play } from "lucide-react";
 
 import type { VideoDetails, VideoFormat, DownloadState } from "@/types";
 import { executeDownload, formatDuration, estimateSize } from "@/utils/downloader";
@@ -10,6 +10,7 @@ import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import DownloadProgress from "@/components/ui/DownloadProgress";
 import QualityPreview from "@/components/ui/QualityPreview";
+import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 
 export default function SingleDownloader() {
   const [url, setUrl] = useState("");
@@ -20,6 +21,7 @@ export default function SingleDownloader() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -85,6 +87,19 @@ export default function SingleDownloader() {
 
       {error && <ErrorBanner title="Failed to Load Content" message={error} />}
 
+      {/* Video preview modal */}
+      {data && previewOpen && (
+        <VideoPreviewModal
+          details={data.details}
+          formats={data.formats}
+          onClose={() => setPreviewOpen(false)}
+          onDownload={(itag, needsMerge) => {
+            setPreviewOpen(false);
+            handleDownload(itag, needsMerge);
+          }}
+        />
+      )}
+
       {data && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -106,6 +121,16 @@ export default function SingleDownloader() {
                   <Clock className="w-3 h-3 text-zinc-400" />
                   {formatDuration(data.details.duration)}
                 </div>
+                {/* Preview button */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewOpen(true)}
+                  className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-black/70 border border-white/20 flex items-center justify-center hover:bg-violet-600/80 transition-colors">
+                    <Play className="w-5 h-5 text-white ml-0.5" />
+                  </div>
+                </button>
               </div>
 
               <div>

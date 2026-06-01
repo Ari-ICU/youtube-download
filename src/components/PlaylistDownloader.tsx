@@ -15,6 +15,7 @@ import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
 import QualityPreview from "@/components/ui/QualityPreview";
+import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 
 const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "4k",    label: "4K / 2160p UHD", description: "Requires ffmpeg merge", icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />, badge: "4K" },
@@ -43,6 +44,8 @@ export default function PlaylistDownloader() {
   // Per-video format preview: videoId → formats (null = loading)
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewFormats, setPreviewFormats] = useState<Record<string, VideoFormat[] | "loading" | "error">>({});
+  // Video modal state
+  const [modalVideo, setModalVideo] = useState<PlaylistVideo | null>(null);
 
   const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
     e.stopPropagation(); // don't toggle checkbox
@@ -58,9 +61,7 @@ export default function PlaylistDownloader() {
     } catch {
       setPreviewFormats((p) => ({ ...p, [video.id]: "error" }));
     }
-  };
-
-  const handleAnalyze = async () => {
+  };  const handleAnalyze = async () => {
     if (!url.trim()) return;
     setIsAnalyzing(true);
     setError(null);
