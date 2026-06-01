@@ -9,9 +9,13 @@ interface DownloadProgressProps {
  * Inline download progress indicator.
  * Renders one of three states: downloading (with progress bar), completed, or failed.
  * Pass `null` / omit mounting when status is "idle".
+ *
+ * When progress === 0 (file size unknown / Content-Length missing), renders an
+ * indeterminate shimmer bar so the UI never looks frozen.
  */
 export default function DownloadProgress({ state }: DownloadProgressProps) {
   if (state.status === "downloading") {
+    const hasProgress = state.progress > 0;
     return (
       <div className="w-full bg-violet-500/10 border border-violet-500/20 p-4 rounded-xl backdrop-blur-md">
         <div className="flex items-center justify-between text-xs font-bold text-violet-400 mb-2">
@@ -20,18 +24,38 @@ export default function DownloadProgress({ state }: DownloadProgressProps) {
             Extracting stream…
           </span>
           <span>
-            {state.progress}% &middot; {state.downloadedMb} MB
+            {hasProgress ? `${state.progress}% · ` : ""}{state.downloadedMb} MB
           </span>
         </div>
-        <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden border border-white/5">
-          <div
-            className="bg-gradient-to-r from-violet-500 to-pink-500 h-full transition-all duration-300"
-            style={{ width: `${state.progress}%` }}
-          />
+
+        <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden border border-white/5 relative">
+          {hasProgress ? (
+            /* ── Determinate: real byte progress known ── */
+            <div
+              className="bg-gradient-to-r from-violet-500 to-pink-500 h-full rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${state.progress}%` }}
+            />
+          ) : (
+            /* ── Indeterminate: Content-Length unavailable, still downloading ── */
+            <div
+              className="absolute h-full w-2/5 bg-gradient-to-r from-transparent via-violet-500 to-pink-500 rounded-full"
+              style={{ animation: "indeterminate-slide 1.5s ease-in-out infinite" }}
+            />
+          )}
         </div>
+
         <p className="text-[10px] text-zinc-500 mt-2">
-          Stream is piped chunk-by-chunk. Do not close this tab.
+          {hasProgress
+            ? "Stream is piped chunk-by-chunk. Do not close this tab."
+            : "Buffering stream… file size could not be determined."}
         </p>
+
+        <style>{`
+          @keyframes indeterminate-slide {
+            0%   { left: -40%; }
+            100% { left: 110%; }
+          }
+        `}</style>
       </div>
     );
   }
