@@ -1,65 +1,69 @@
-import Image from "next/image";
+"use client";
 
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+
+import Header from "@/components/Header";
+import Tabs from "@/components/Tabs";
+import Footer from "@/components/Footer";
+import SingleDownloader from "@/components/SingleDownloader";
+import PlaylistDownloader from "@/components/PlaylistDownloader";
+import type { ActiveTab } from "@/types";
+
+/**
+ * Root page — thin orchestrator that owns only navigation state.
+ * All download logic lives inside SingleDownloader / PlaylistDownloader.
+ */
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("single");
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="relative min-h-screen bg-[#050508] overflow-hidden flex flex-col items-center py-12 px-4 md:px-8">
+      {/* Cinematic glowing background blobs */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-radial-gradient animate-pulse-glow z-0" />
+      <div
+        className="absolute bottom-[-15%] right-[-10%] w-[60%] h-[60%] bg-radial-gradient animate-pulse-glow z-0"
+        style={{ animationDelay: "1.5s" }}
+      />
+
+      {/* Main container */}
+      <div className="w-full max-w-4xl z-10 flex flex-col flex-1 justify-between">
+        <Header />
+
+        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
+
+        <main className="flex-1 w-full">
+          <AnimatePresence mode="wait">
+            {activeTab === "single" && (
+              <motion.div
+                key="single-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.4 }}
+                className="w-full flex flex-col items-center"
+              >
+                <SingleDownloader />
+              </motion.div>
+            )}
+
+            {activeTab === "playlist" && (
+              <motion.div
+                key="playlist-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.4 }}
+                className="w-full flex flex-col items-center"
+              >
+                <PlaylistDownloader />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+
+        <Footer />
+      </div>
     </div>
   );
 }
