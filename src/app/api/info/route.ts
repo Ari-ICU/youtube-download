@@ -122,6 +122,9 @@ export async function GET(request: Request) {
           fps: f.fps ?? null,
           // Expose height so the client can sort/filter by resolution
           height,
+          // Short codec identifiers for display
+          vcodec: hasVideo ? (f.vcodec?.split(".")[0] ?? null) : null,
+          acodec: hasAudio ? (f.acodec?.split(".")[0] ?? null) : null,
         };
       })
       // Sort: combined first, then video-only (highest res first), then audio-only

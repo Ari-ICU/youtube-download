@@ -10,6 +10,9 @@
   
   --animate-pulse-glow: pulse-glow 3s infinite ease-in-out;
   --animate-gradient-shift: gradient-shift 10s infinite alternate;
+
+  /* Custom xs breakpoint for very small phones (< 480px) */
+  --breakpoint-xs: 30rem; /* 480px */
 }
 
 @keyframes pulse-glow {
@@ -48,6 +51,9 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   overflow-x: hidden;
   min-height: 100vh;
+  /* Respect notch / home indicator on iOS */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* Custom modern scrollbar */
@@ -65,6 +71,41 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* Thin scrollbar on mobile — hide track, keep thumb */
+@media (max-width: 640px) {
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+}
+
+/* Safe-area bottom padding for sticky elements on iOS */
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Prevent text size adjustment on orientation change (iOS) */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.glass-panel {
+  background: rgba(13, 13, 20, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-panel-glow {
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.text-glow {
+  text-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+}
+
+.bg-radial-gradient {
+  background: radial-gradient(circle at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%);
+}
+
 
 /* Glassmorphism card utility */
 .glass-panel {
@@ -86,3 +127,24 @@ body {
   background: radial-gradient(circle at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%);
 }
 
+/* Framer Motion animate-in helpers used by Dropdown */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-in-from-top {
+  from { transform: translateY(-4px); }
+  to   { transform: translateY(0); }
+}
+.animate-in {
+  animation-fill-mode: both;
+}
+.fade-in {
+  animation-name: fade-in;
+}
+.slide-in-from-top-1 {
+  animation-name: slide-in-from-top;
+}
+.duration-150 {
+  animation-duration: 150ms;
+}
