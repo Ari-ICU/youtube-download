@@ -19,6 +19,36 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen bg-[#050508] overflow-hidden flex flex-col items-center py-12 px-4 md:px-8">
+      {/* JSON-LD Structured Schema for Search Engines */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            "name": "VibeTube",
+            "url": "https://vibetube.app",
+            "logo": "https://vibetube.app/logo.png",
+            "description": "Download high-quality YouTube videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "All",
+            "browserRequirements": "Requires HTML5 compatible browser",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+            },
+            "featureList": [
+              "High-speed YouTube video downloads",
+              "Full playlist downloads in one click",
+              "Convert YouTube to high-quality MP3 audio",
+              "Sleek glassmorphic user interface",
+              "No registration or installation required",
+            ],
+          }),
+        }}
+      />
+
       {/* Cinematic glowing background blobs */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-radial-gradient animate-pulse-glow z-0" />
       <div
