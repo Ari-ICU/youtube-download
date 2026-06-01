@@ -48,10 +48,10 @@ export default function PlaylistDownloader() {
   const [modalVideo, setModalVideo] = useState<PlaylistVideo | null>(null);
 
   const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
-    e.stopPropagation(); // don't toggle checkbox
-    if (previewId === video.id) { setPreviewId(null); return; }
-    setPreviewId(video.id);
-    if (previewFormats[video.id]) return; // already cached
+    e.stopPropagation();
+    // Show modal immediately; load formats if not cached yet
+    setModalVideo(video);
+    if (previewFormats[video.id] && previewFormats[video.id] !== "error") return;
     setPreviewFormats((p) => ({ ...p, [video.id]: "loading" }));
     try {
       const res = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
@@ -61,7 +61,9 @@ export default function PlaylistDownloader() {
     } catch {
       setPreviewFormats((p) => ({ ...p, [video.id]: "error" }));
     }
-  };  const handleAnalyze = async () => {
+  };
+
+  const handleAnalyze = async () => {
     if (!url.trim()) return;
     setIsAnalyzing(true);
     setError(null);
@@ -223,6 +225,28 @@ export default function PlaylistDownloader() {
         placeholder="Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"
         isLoading={isAnalyzing} submitLabel="Extract" />
       {error && <ErrorBanner title="Failed to Load Playlist" message={error} />}
+
+      {/* ── Video preview modal ── */}
+      {modalVideo && Array.isArray(previewFormats[modalVideo.id]) && (
+        <VideoPreviewModal
+          details={{
+            videoId:   modalVideo.id,
+            title:     modalVideo.title,
+            author:    modalVideo.author,
+            authorUrl: `https://www.youtube.com/channel/${modalVideo.author}`,
+            thumbnail: modalVideo.thumbnail,
+            duration:  modalVideo.duration,
+            views:     0,
+            description: "",
+          }}
+          formats={previewFormats[modalVideo.id] as VideoFormat[]}
+          onClose={() => setModalVideo(null)}
+          onDownload={(itag, needsMerge) => {
+            setModalVideo(null);
+            handleSingleDownload(modalVideo, itag, needsMerge);
+          }}
+        />
+      )}
 
       {playlistData && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
