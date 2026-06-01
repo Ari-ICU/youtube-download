@@ -14,7 +14,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("single");
 
   return (
-    <div className="relative min-h-screen bg-[#050508] overflow-x-hidden flex flex-col items-center py-8 sm:py-12 px-4 sm:px-6 md:px-8">
+    <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center py-8 sm:py-12 px-4 sm:px-6 md:px-8">
       {/* JSON-LD */}
       <script
         type="application/ld+json"
@@ -34,12 +34,9 @@ export default function Home() {
         }}
       />
 
-      {/* Background blobs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-radial-gradient animate-pulse-glow z-0 pointer-events-none" />
-      <div
-        className="absolute bottom-[-15%] right-[-10%] w-[60%] h-[60%] bg-radial-gradient animate-pulse-glow z-0 pointer-events-none"
-        style={{ animationDelay: "1.5s" }}
-      />
+      {/* Background blobs — GPU-promoted, static blur, opacity-only animation */}
+      <div className="bg-blob z-0" style={{ top: "-10%", left: "-10%", width: "50%", height: "50%" }} />
+      <div className="bg-blob z-0" style={{ bottom: "-15%", right: "-10%", width: "60%", height: "60%", animationDelay: "1.5s" }} />
 
       {/* Main container — full width on mobile, capped on desktop */}
       <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between">

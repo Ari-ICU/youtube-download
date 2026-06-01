@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import {
   Download, CheckSquare, Square, Search, Play, RefreshCw,
   Loader2, CheckCircle2, AlertCircle, Settings, ShieldCheck,
-  Check, Sparkles, Video, Music, Layers, ChevronDown,
+  Check, Sparkles, Video, Music, Layers, ChevronDown, Eye, X,
 } from "lucide-react";
 
 import type { PlaylistDetails, PlaylistVideo, VideoFormat, DownloadState, QualityPreference } from "@/types";
@@ -14,6 +14,7 @@ import { executeDownloadToBlob, formatDuration, sanitizeFilename, estimateSize }
 import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
+import QualityPreview from "@/components/ui/QualityPreview";
 
 const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "4k",    label: "4K / 2160p UHD", description: "Requires ffmpeg merge", icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />, badge: "4K" },
@@ -38,6 +39,26 @@ export default function PlaylistDownloader() {
   const [currentIndex, setCurrentIndex] = useState(-1);
   // Mobile: controls panel collapsed by default
   const [controlsOpen, setControlsOpen] = useState(false);
+
+  // Per-video format preview: videoId → formats (null = loading)
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewFormats, setPreviewFormats] = useState<Record<string, VideoFormat[] | "loading" | "error">>({});
+
+  const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
+    e.stopPropagation(); // don't toggle checkbox
+    if (previewId === video.id) { setPreviewId(null); return; }
+    setPreviewId(video.id);
+    if (previewFormats[video.id]) return; // already cached
+    setPreviewFormats((p) => ({ ...p, [video.id]: "loading" }));
+    try {
+      const res = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setPreviewFormats((p) => ({ ...p, [video.id]: json.formats }));
+    } catch {
+      setPreviewFormats((p) => ({ ...p, [video.id]: "error" }));
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!url.trim()) return;
@@ -118,6 +139,19 @@ export default function PlaylistDownloader() {
   const filteredVideos = playlistData
     ? playlistData.videos.filter((v) => v.title.toLowerCase().includes(playlistSearch.toLowerCase()))
     : [];
+
+  // Download a single video directly from the preview panel (not ZIP)
+  const handleSingleDownload = (video: PlaylistVideo, itag: string, needsMerge: boolean) => {
+    const formats = previewFormats[video.id];
+    const format = Array.isArray(formats) ? formats.find((f) => f.itag === itag) : undefined;
+    const isAudio = !format?.hasVideo && !!format?.hasAudio;
+    const height = format?.height ?? 0;
+    const size = format?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
+    // Use executeDownload (triggers browser save-as) rather than blob accumulation
+    import("@/utils/downloader").then(({ executeDownload }) => {
+      executeDownload(video.url, itag, video.title, video.id, () => {}, size, needsMerge);
+    });
+  };
 
   const startDownloadQueue = async () => {
     if (!playlistData || selectedVideos.size === 0 || isDownloading) return;
@@ -327,26 +361,71 @@ export default function PlaylistDownloader() {
               </div>
               <div className="max-h-[520px] overflow-y-auto divide-y divide-white/[0.03]">
                 {filteredVideos.map((video) => (
-                  <div key={video.id} onClick={() => toggleVideo(video.id)}
-                    className={`flex items-center gap-3 p-3.5 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}>
-                    <div className="shrink-0 text-brand-purple">
-                      {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
-                    </div>
-                    <div className="relative w-20 aspect-video rounded-lg overflow-hidden border border-white/5 shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
-                      <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded">
-                        {video.durationText || formatDuration(video.duration)}
+                  <div key={video.id}>
+                    <div
+                      onClick={() => toggleVideo(video.id)}
+                      className={`flex items-center gap-3 p-3.5 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}
+                    >
+                      <div className="shrink-0 text-brand-purple">
+                        {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
+                      </div>
+                      <div className="relative w-20 aspect-video rounded-lg overflow-hidden border border-white/5 shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
+                        <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded">
+                          {video.durationText || formatDuration(video.duration)}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
+                        <p className="text-[10px] text-zinc-500 mt-0.5">{video.author}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <QueueIcon videoId={video.id} />
+                        {!queue[video.id] && (
+                          <button
+                            type="button"
+                            onClick={(e) => openPreview(video, e)}
+                            title="Preview formats"
+                            className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? "text-violet-400 bg-violet-500/10" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.05]"}`}
+                          >
+                            {previewId === video.id ? <X className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                        {!queue[video.id] && <span className="text-[10px] text-zinc-600 font-mono">#{video.index + 1}</span>}
                       </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{video.author}</p>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                      <QueueIcon videoId={video.id} />
-                      {!queue[video.id] && <span className="text-[10px] text-zinc-600 font-mono">#{video.index + 1}</span>}
-                    </div>
+                    {/* Inline format preview panel */}
+                    <AnimatePresence>
+                      {previewId === video.id && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden border-t border-white/5 bg-white/[0.01]"
+                        >
+                          <div className="p-4">
+                            {previewFormats[video.id] === "loading" && (
+                              <div className="flex items-center gap-2 text-zinc-500 text-xs py-2">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />Loading formats…
+                              </div>
+                            )}
+                            {previewFormats[video.id] === "error" && (
+                              <p className="text-xs text-red-400">Failed to load formats. Try again.</p>
+                            )}
+                            {Array.isArray(previewFormats[video.id]) && (
+                              <QualityPreview
+                                formats={previewFormats[video.id] as VideoFormat[]}
+                                duration={video.duration}
+                                isDownloading={false}
+                                onDownload={(itag, needsMerge) => handleSingleDownload(video, itag, needsMerge)}
+                              />
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 ))}
                 {filteredVideos.length === 0 && (
@@ -369,26 +448,70 @@ export default function PlaylistDownloader() {
             </div>
             <div className="max-h-[55vh] overflow-y-auto divide-y divide-white/[0.03]">
               {filteredVideos.map((video) => (
-                <div key={video.id} onClick={() => toggleVideo(video.id)}
-                  className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}>
-                  <div className="shrink-0 text-brand-purple">
-                    {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
-                  </div>
-                  <div className="relative w-16 aspect-video rounded-md overflow-hidden border border-white/5 shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
-                    <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[7px] px-1 rounded">
-                      {video.durationText || formatDuration(video.duration)}
+                <div key={video.id}>
+                  <div
+                    onClick={() => toggleVideo(video.id)}
+                    className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}
+                  >
+                    <div className="shrink-0 text-brand-purple">
+                      {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
+                    </div>
+                    <div className="relative w-16 aspect-video rounded-md overflow-hidden border border-white/5 shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
+                      <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[7px] px-1 rounded">
+                        {video.durationText || formatDuration(video.duration)}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
+                      <p className="text-[9px] text-zinc-500 mt-0.5">{video.author}</p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      <QueueIcon videoId={video.id} />
+                      {!queue[video.id] && (
+                        <button
+                          type="button"
+                          onClick={(e) => openPreview(video, e)}
+                          className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? "text-violet-400 bg-violet-500/10" : "text-zinc-600 hover:text-zinc-300"}`}
+                        >
+                          {previewId === video.id ? <X className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                      {!queue[video.id] && <span className="text-[9px] text-zinc-600 font-mono">#{video.index + 1}</span>}
                     </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
-                    <p className="text-[9px] text-zinc-500 mt-0.5">{video.author}</p>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-1.5">
-                    <QueueIcon videoId={video.id} />
-                    {!queue[video.id] && <span className="text-[9px] text-zinc-600 font-mono">#{video.index + 1}</span>}
-                  </div>
+                  {/* Inline format preview panel (mobile) */}
+                  <AnimatePresence>
+                    {previewId === video.id && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden border-t border-white/5 bg-white/[0.01]"
+                      >
+                        <div className="p-3">
+                          {previewFormats[video.id] === "loading" && (
+                            <div className="flex items-center gap-2 text-zinc-500 text-xs py-2">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />Loading formats…
+                            </div>
+                          )}
+                          {previewFormats[video.id] === "error" && (
+                            <p className="text-xs text-red-400">Failed to load formats.</p>
+                          )}
+                          {Array.isArray(previewFormats[video.id]) && (
+                            <QualityPreview
+                              formats={previewFormats[video.id] as VideoFormat[]}
+                              duration={video.duration}
+                              isDownloading={false}
+                              onDownload={(itag, needsMerge) => handleSingleDownload(video, itag, needsMerge)}
+                            />
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               ))}
               {filteredVideos.length === 0 && (

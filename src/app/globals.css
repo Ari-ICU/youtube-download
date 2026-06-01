@@ -3,148 +3,143 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  
+
   --color-brand-purple: #8b5cf6;
-  --color-brand-pink: #ec4899;
-  --color-brand-blue: #3b82f6;
-  
-  --animate-pulse-glow: pulse-glow 3s infinite ease-in-out;
+  --color-brand-pink:   #ec4899;
+  --color-brand-blue:   #3b82f6;
+
+  --animate-pulse-glow:     pulse-glow 4s infinite ease-in-out;
   --animate-gradient-shift: gradient-shift 10s infinite alternate;
 
-  /* Custom xs breakpoint for very small phones (< 480px) */
   --breakpoint-xs: 30rem; /* 480px */
 }
 
+/* ─── Keyframes ──────────────────────────────────────────────────────────────
+   Use only opacity + transform(translate/scale via GPU).
+   NO filter: blur() inside keyframes — it forces a repaint every frame.
+   The blobs are pre-blurred with a static filter on the element itself.
+*/
 @keyframes pulse-glow {
-  0%, 100% {
-    opacity: 0.3;
-    transform: scale(1);
-    filter: blur(80px);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.1);
-    filter: blur(100px);
-  }
+  0%, 100% { opacity: 0.25; transform: scale(1);    }
+  50%       { opacity: 0.50; transform: scale(1.08); }
 }
 
 @keyframes gradient-shift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
 }
 
+/* ─── Framer Motion animate-in helpers (Dropdown) ────────────────────────── */
+@keyframes fade-in           { from { opacity: 0; }                to { opacity: 1; }              }
+@keyframes slide-in-from-top { from { transform: translateY(-4px); } to { transform: translateY(0); } }
+.animate-in                  { animation-fill-mode: both; }
+.fade-in                     { animation-name: fade-in; }
+.slide-in-from-top-1         { animation-name: slide-in-from-top; }
+.duration-150                { animation-duration: 150ms; }
+
+/* ─── Root ───────────────────────────────────────────────────────────────── */
 :root {
   --background: #050508;
   --foreground: #f3f4f6;
+}
+
+html {
+  /* Prevent iOS font inflation on rotation */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth momentum scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  overflow-x: hidden;
   min-height: 100vh;
-  /* Respect notch / home indicator on iOS */
-  padding-left: env(safe-area-inset-left);
+  /* Contain horizontal overflow without blocking the compositor */
+  overflow-x: clip;
+  /* Prevent pull-to-refresh jank on mobile */
+  overscroll-behavior-y: none;
+  /* Safe-area insets for notched phones */
+  padding-left:  env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 
-/* Custom modern scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-/* Thin scrollbar on mobile — hide track, keep thumb */
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar              { width: 6px; height: 6px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: rgba(255,255,255,0.10); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover  { background: rgba(255,255,255,0.20); }
 @media (max-width: 640px) {
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
 }
 
-/* Safe-area bottom padding for sticky elements on iOS */
+/* ─── Safe-area bottom helper ────────────────────────────────────────────── */
 .safe-bottom {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
-/* Prevent text size adjustment on orientation change (iOS) */
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
+/* ─── Background blobs ───────────────────────────────────────────────────── */
+/*
+  Key performance rules:
+  1. will-change: transform  → promotes to its own compositor layer
+  2. filter: blur() is set ONCE on the element, not inside keyframes
+  3. contain: strict         → tells the browser this element doesn't affect layout
+  4. pointer-events: none    → never hit-tested
+*/
+.bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(139,92,246,0.18) 0%, transparent 70%);
+  filter: blur(72px);
+  will-change: transform, opacity;
+  contain: strict;
+  pointer-events: none;
+  animation: pulse-glow 4s infinite ease-in-out;
 }
+
+/* ─── Glassmorphism ──────────────────────────────────────────────────────── */
+/*
+  backdrop-filter is expensive when many elements use it simultaneously.
+  We keep it but reduce blur radius (12px vs 16px) and add will-change
+  so the browser can promote each panel to its own layer.
+*/
 .glass-panel {
-  background: rgba(13, 13, 20, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(13, 13, 20, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  /* Promote to compositor layer so backdrop-filter doesn't repaint neighbours */
+  will-change: transform;
+  /* Contain paint — changes inside don't trigger outer repaints */
+  contain: paint;
 }
 
 .glass-panel-glow {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
+/* ─── Text glow ──────────────────────────────────────────────────────────── */
 .text-glow {
   text-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
 }
 
+/* ─── Legacy alias (kept for any remaining usage) ────────────────────────── */
 .bg-radial-gradient {
-  background: radial-gradient(circle at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle at center, rgba(139,92,246,0.15) 0%, transparent 70%);
 }
 
-
-/* Glassmorphism card utility */
-.glass-panel {
-  background: rgba(13, 13, 20, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+/* ─── Thumbnail hover scale — GPU only ──────────────────────────────────── */
+/*
+  Ensure thumbnail scale transitions stay on the GPU layer.
+  The group-hover:scale-105 Tailwind class already uses transform,
+  but we add will-change so the layer is promoted before the hover starts.
+*/
+.thumb-hover {
+  will-change: transform;
+  transition: transform 0.5s ease;
 }
-
-.glass-panel-glow {
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-}
-
-.text-glow {
-  text-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
-}
-
-.bg-radial-gradient {
-  background: radial-gradient(circle at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%);
-}
-
-/* Framer Motion animate-in helpers used by Dropdown */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes slide-in-from-top {
-  from { transform: translateY(-4px); }
-  to   { transform: translateY(0); }
-}
-.animate-in {
-  animation-fill-mode: both;
-}
-.fade-in {
-  animation-name: fade-in;
-}
-.slide-in-from-top-1 {
-  animation-name: slide-in-from-top;
-}
-.duration-150 {
-  animation-duration: 150ms;
+.thumb-hover:hover {
+  transform: scale(1.05);
 }

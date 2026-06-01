@@ -100,7 +100,7 @@ export default function SingleDownloader() {
                 <img
                   src={data.details.thumbnail}
                   alt={data.details.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover thumb-hover"
                 />
                 <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-[10px] font-bold text-zinc-100 backdrop-blur-sm flex items-center gap-1 border border-white/5">
                   <Clock className="w-3 h-3 text-zinc-400" />
