@@ -2,9 +2,6 @@ import type { DownloadState } from "@/types";
 
 // ─── Formatting Helpers ───────────────────────────────────────────────────────
 
-/**
- * Converts a duration in seconds to a human-readable "H:MM:SS" or "M:SS" string.
- */
 export function formatDuration(seconds: number): string {
   if (isNaN(seconds) || seconds < 0) return "0:00";
   const hrs = Math.floor(seconds / 3600);
@@ -16,33 +13,37 @@ export function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-/**
- * Formats a raw byte count into a human-readable "X.X MB" string.
- */
 export function formatBytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
-/**
- * Sanitizes a string for use as a filename by stripping non-alphanumeric characters.
- */
 export function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9\-_ ]/g, "").trim() || "youtube-download";
+}
+
+// ─── Bitrate estimation by resolution ────────────────────────────────────────
+// Used when Content-Length is absent to show approximate progress.
+export function estimateSize(
+  durationSecs: number,
+  height: number,
+  isAudio: boolean
+): number {
+  if (isAudio) return (durationSecs * 128_000) / 8;
+  // Rough average bitrates per resolution tier
+  if (height >= 2160) return (durationSecs * 20_000_000) / 8; // 4K ~20 Mbps
+  if (height >= 1440) return (durationSecs * 10_000_000) / 8; // 1440p ~10 Mbps
+  if (height >= 1080) return (durationSecs * 4_000_000) / 8;  // 1080p ~4 Mbps
+  if (height >= 720)  return (durationSecs * 2_500_000) / 8;  // 720p ~2.5 Mbps
+  if (height >= 480)  return (durationSecs * 1_000_000) / 8;  // 480p ~1 Mbps
+  return (durationSecs * 500_000) / 8;                         // 360p ~500 Kbps
 }
 
 // ─── Core Stream Downloader ───────────────────────────────────────────────────
 
 /**
  * Downloads a YouTube video/audio stream via the `/api/download` route handler.
- *
- * Progress is reported incrementally through `onUpdate` so the caller can
- * update its own state on every received chunk.
- *
- * @param url     - Encoded YouTube video URL
- * @param itag    - Format itag selected by the user
- * @param title   - Video title used for the saved filename
- * @param id      - Unique identifier for this download job (itag or videoId)
- * @param onUpdate - Callback called on every state transition
+ * Set `merge = true` for video-only adaptive streams (4K) so the server merges
+ * the best audio track before piping.
  */
 export async function executeDownload(
   url: string,
@@ -50,14 +51,20 @@ export async function executeDownload(
   title: string,
   id: string,
   onUpdate: (state: DownloadState) => void,
-  expectedSize?: number
+  expectedSize?: number,
+  merge = false
 ): Promise<void> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   try {
-    const response = await fetch(
-      `/api/download?url=${encodeURIComponent(url)}&itag=${itag}&title=${encodeURIComponent(title)}`
-    );
+    const apiUrl =
+      `/api/download` +
+      `?url=${encodeURIComponent(url)}` +
+      `&itag=${encodeURIComponent(itag)}` +
+      `&title=${encodeURIComponent(title)}` +
+      (merge ? "&merge=true" : "");
+
+    const response = await fetch(apiUrl);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -70,7 +77,9 @@ export async function executeDownload(
     if (!reader) throw new Error("Stream reader could not be initialised.");
 
     const contentLength = response.headers.get("Content-Length");
-    const totalBytes = contentLength ? parseInt(contentLength, 10) : expectedSize ?? 0;
+    const totalBytes = contentLength
+      ? parseInt(contentLength, 10)
+      : (expectedSize ?? 0);
 
     let receivedBytes = 0;
     const chunks: BlobPart[] = [];
@@ -93,11 +102,9 @@ export async function executeDownload(
       }
     }
 
-    // Determine extension from Content-Type header
     const mimeType = response.headers.get("Content-Type") ?? "";
     const ext = mimeType.includes("audio") ? "m4a" : "mp4";
 
-    // Build Blob and trigger a native browser Save-As prompt
     const blob = new Blob(chunks, { type: mimeType || "application/octet-stream" });
     const blobUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -106,7 +113,7 @@ export async function executeDownload(
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
-    URL.revokeObjectURL(blobUrl); // free memory immediately
+    URL.revokeObjectURL(blobUrl);
 
     onUpdate({
       id,
@@ -122,16 +129,8 @@ export async function executeDownload(
 }
 
 /**
- * Downloads a YouTube video/audio stream via the `/api/download` route handler
- * and returns the raw file Blob along with its resolved name/extension.
- *
- * Progress is reported incrementally through `onUpdate`.
- *
- * @param url      - Encoded YouTube video URL
- * @param itag     - Format itag selected by the user
- * @param title    - Video title used for the saved filename
- * @param id       - Unique identifier for this download job (videoId)
- * @param onUpdate - Callback called on every state transition
+ * Downloads a stream and returns the raw Blob (used for playlist ZIP building).
+ * Set `merge = true` for video-only adaptive streams (4K).
  */
 export async function executeDownloadToBlob(
   url: string,
@@ -139,14 +138,20 @@ export async function executeDownloadToBlob(
   title: string,
   id: string,
   onUpdate: (state: DownloadState) => void,
-  expectedSize?: number
+  expectedSize?: number,
+  merge = false
 ): Promise<{ blob: Blob; filename: string } | null> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   try {
-    const response = await fetch(
-      `/api/download?url=${encodeURIComponent(url)}&itag=${itag}&title=${encodeURIComponent(title)}`
-    );
+    const apiUrl =
+      `/api/download` +
+      `?url=${encodeURIComponent(url)}` +
+      `&itag=${encodeURIComponent(itag)}` +
+      `&title=${encodeURIComponent(title)}` +
+      (merge ? "&merge=true" : "");
+
+    const response = await fetch(apiUrl);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -159,7 +164,9 @@ export async function executeDownloadToBlob(
     if (!reader) throw new Error("Stream reader could not be initialised.");
 
     const contentLength = response.headers.get("Content-Length");
-    const totalBytes = contentLength ? parseInt(contentLength, 10) : expectedSize ?? 0;
+    const totalBytes = contentLength
+      ? parseInt(contentLength, 10)
+      : (expectedSize ?? 0);
 
     let receivedBytes = 0;
     const chunks: BlobPart[] = [];
@@ -185,7 +192,6 @@ export async function executeDownloadToBlob(
     const mimeType = response.headers.get("Content-Type") ?? "";
     const ext = mimeType.includes("audio") ? "m4a" : "mp4";
     const filename = `${sanitizeFilename(title)}.${ext}`;
-
     const blob = new Blob(chunks, { type: mimeType || "application/octet-stream" });
 
     onUpdate({
@@ -203,4 +209,3 @@ export async function executeDownloadToBlob(
     return null;
   }
 }
-

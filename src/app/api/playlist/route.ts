@@ -3,21 +3,46 @@ import { execFile } from "child_process";
 
 const YTDLP = "yt-dlp";
 
+// ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
+const ALLOWED_HOSTS = [
+  "youtube.com",
+  "www.youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  "music.youtube.com",
+];
+
+function isAllowedUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:") return false;
+    return ALLOWED_HOSTS.some(
+      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Run yt-dlp with the given args and return stdout as a string.
- * stderr is forwarded to the console for debugging.
+ * Uses execFile (not exec) so args are never passed through a shell — no injection risk.
  */
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = execFile(YTDLP, args, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        if (stderr) console.error("[yt-dlp stderr]", stderr.slice(0, 500));
-        reject(new Error(stderr?.trim() || err.message));
-      } else {
-        resolve(stdout);
+    const proc = execFile(
+      YTDLP,
+      args,
+      { maxBuffer: 50 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          if (stderr) console.error("[yt-dlp stderr]", stderr.slice(0, 500));
+          reject(new Error(stderr?.trim() || err.message));
+        } else {
+          resolve(stdout);
+        }
       }
-    });
-    // Also stream stderr to console in real time
+    );
     proc.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
   });
 }
@@ -28,13 +53,22 @@ export async function GET(request: Request) {
     const url = searchParams.get("url");
 
     if (!url) {
-      return NextResponse.json({ error: "Playlist URL is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Playlist URL is required" },
+        { status: 400 }
+      );
     }
 
     const decodedUrl = decodeURIComponent(url);
 
-    // --flat-playlist: don't download — just dump metadata for each entry as JSONL
-    // --dump-single-json: also include playlist-level metadata in one JSON blob
+    // ── Security: reject non-YouTube URLs ─────────────────────────────────────
+    if (!isAllowedUrl(decodedUrl)) {
+      return NextResponse.json(
+        { error: "Only YouTube URLs are supported." },
+        { status: 400 }
+      );
+    }
+
     const stdout = await runYtDlp([
       "--flat-playlist",
       "--dump-single-json",
@@ -44,7 +78,6 @@ export async function GET(request: Request) {
 
     const info = JSON.parse(stdout);
 
-    // yt-dlp returns entries[] for playlists
     const entries: {
       id: string;
       title?: string;
@@ -60,7 +93,6 @@ export async function GET(request: Request) {
     const videos = entries
       .filter((e) => !!e.id)
       .map((e, index) => {
-        // Pick best thumbnail
         const thumbs = e.thumbnails ?? [];
         const thumb =
           thumbs.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
@@ -79,7 +111,6 @@ export async function GET(request: Request) {
         };
       });
 
-    // Playlist-level thumbnail: use first video's thumb
     const playlistThumb =
       videos[0]?.thumbnail ??
       `https://img.youtube.com/vi/${entries[0]?.id ?? ""}/mqdefault.jpg`;

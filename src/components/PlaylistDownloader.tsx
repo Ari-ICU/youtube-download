@@ -13,11 +13,13 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Video,
-  Music,
   Settings,
   ShieldCheck,
   Check,
+  Sparkles,
+  Video,
+  Music,
+  Layers,
 } from "lucide-react";
 
 import type {
@@ -25,21 +27,54 @@ import type {
   PlaylistVideo,
   VideoFormat,
   DownloadState,
+  QualityPreference,
 } from "@/types";
 import {
   executeDownloadToBlob,
   formatDuration,
   sanitizeFilename,
+  estimateSize,
 } from "@/utils/downloader";
 import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
+import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
 
+// ─── Quality options for the dropdown ────────────────────────────────────────
 
-/**
- * Self-contained playlist download domain.
- * Fetches playlist metadata from /api/playlist, lets the user select
- * videos, then executes sequential downloads via executeDownload.
- */
+const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
+  {
+    value: "4k",
+    label: "4K / 2160p UHD",
+    description: "Highest quality — requires ffmpeg merge",
+    icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />,
+    badge: "4K",
+  },
+  {
+    value: "high",
+    label: "High Quality",
+    description: "720p or 1080p video + audio",
+    icon: <Video className="w-3.5 h-3.5 text-brand-purple" />,
+  },
+  {
+    value: "medium",
+    label: "Medium Quality",
+    description: "480p video + audio",
+    icon: <Video className="w-3.5 h-3.5 text-brand-blue" />,
+  },
+  {
+    value: "low",
+    label: "Low Quality",
+    description: "360p video + audio",
+    icon: <Layers className="w-3.5 h-3.5 text-zinc-400" />,
+  },
+  {
+    value: "audio",
+    label: "Audio Only",
+    description: "Best available M4A track",
+    icon: <Music className="w-3.5 h-3.5 text-brand-pink" />,
+  },
+];
+
 export default function PlaylistDownloader() {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -49,20 +84,15 @@ export default function PlaylistDownloader() {
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [playlistSearch, setPlaylistSearch] = useState("");
 
-  // Controls for quality and quantity selection
-  const [qualityPreference, setQualityPreference] = useState<"high" | "medium" | "low" | "audio">("high");
+  const [qualityPreference, setQualityPreference] = useState<QualityPreference>("high");
   const [quantityLimit, setQuantityLimit] = useState<string>("");
 
-  // ZIP packaging phase states
   const [zipStatus, setZipStatus] = useState<"idle" | "zipping" | "completed" | "failed">("idle");
-
-  // Per-item download state map keyed by videoId
   const [queue, setQueue] = useState<Record<string, DownloadState>>({});
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
 
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────────
+  // ─── Handlers ────────────────────────────────────────────────────────────────
 
   const handleAnalyze = async () => {
     if (!url.trim()) return;
@@ -75,16 +105,11 @@ export default function PlaylistDownloader() {
     setQuantityLimit("");
 
     try {
-      const res = await fetch(
-        `/api/playlist?url=${encodeURIComponent(url.trim())}`
-      );
+      const res = await fetch(`/api/playlist?url=${encodeURIComponent(url.trim())}`);
       const json = await res.json();
-      if (!res.ok)
-        throw new Error(json.error ?? "Failed to analyze playlist URL");
+      if (!res.ok) throw new Error(json.error ?? "Failed to analyze playlist URL");
       setPlaylistData(json.playlist);
-      const allIds = new Set<string>(
-        json.playlist.videos.map((v: PlaylistVideo) => v.id)
-      );
+      const allIds = new Set<string>(json.playlist.videos.map((v: PlaylistVideo) => v.id));
       setSelectedVideos(allIds);
       setQuantityLimit(json.playlist.videos.length.toString());
     } catch (err: unknown) {
@@ -103,7 +128,7 @@ export default function PlaylistDownloader() {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSelectedVideos(next);
-    setQuantityLimit(""); // Clear custom limit display if manually toggled
+    setQuantityLimit("");
   };
 
   const toggleSelectAll = () => {
@@ -122,51 +147,66 @@ export default function PlaylistDownloader() {
     if (!playlistData) return;
     const num = parseInt(val);
     if (!isNaN(num) && num > 0) {
-      const limited = playlistData.videos.slice(0, num).map((v) => v.id);
-      setSelectedVideos(new Set(limited));
+      setSelectedVideos(new Set(playlistData.videos.slice(0, num).map((v) => v.id)));
     } else if (val === "") {
       setSelectedVideos(new Set());
     }
   };
 
-  const getTargetItag = (
+  // ─── Format selection logic ───────────────────────────────────────────────────
+
+  /**
+   * Returns { itag, merge } for the best format matching the quality preference.
+   * merge=true means the server must combine a video-only stream with best audio.
+   */
+  const getTargetFormat = (
     formats: VideoFormat[],
-    preference: "high" | "medium" | "low" | "audio"
-  ): string => {
+    preference: QualityPreference
+  ): { itag: string; merge: boolean } => {
+    const fallback = { itag: "18", merge: false };
+
     if (preference === "audio") {
-      const audioOnly =
+      const f =
         formats.find((f) => !f.hasVideo && f.hasAudio && f.container === "m4a") ||
-        formats.find((f) => !f.hasVideo && f.hasAudio) ||
-        formats.find((f) => f.hasAudio);
-      if (audioOnly) return audioOnly.itag;
-    } else if (preference === "high") {
-      const high =
-        formats.find((f) => f.hasVideo && f.hasAudio && (f.qualityLabel === "720p" || f.qualityLabel === "1080p")) ||
-        formats.find((f) => f.hasVideo && f.hasAudio && parseInt(f.qualityLabel) >= 720) ||
-        formats.find((f) => f.hasVideo && f.hasAudio && f.itag === "22") ||
-        formats.find((f) => f.hasVideo && f.hasAudio && f.itag === "18") ||
-        formats.find((f) => f.hasVideo && f.hasAudio);
-      if (high) return high.itag;
-    } else if (preference === "medium") {
-      const medium =
-        formats.find((f) => f.hasVideo && f.hasAudio && f.qualityLabel === "480p") ||
-        formats.find((f) => f.hasVideo && f.hasAudio && parseInt(f.qualityLabel) === 480) ||
-        formats.find((f) => f.hasVideo && f.hasAudio && f.itag === "18") ||
-        formats.find((f) => f.hasVideo && f.hasAudio);
-      if (medium) return medium.itag;
-    } else if (preference === "low") {
-      const low =
-        formats.find((f) => f.hasVideo && f.hasAudio && (f.qualityLabel === "360p" || f.itag === "18")) ||
-        formats.find((f) => f.hasVideo && f.hasAudio && parseInt(f.qualityLabel) <= 360) ||
-        formats.find((f) => f.hasVideo && f.hasAudio);
-      if (low) return low.itag;
+        formats.find((f) => !f.hasVideo && f.hasAudio);
+      return f ? { itag: f.itag, merge: false } : fallback;
     }
 
-    const standardFallback =
-      formats.find((f) => f.hasVideo && f.hasAudio && f.itag === "18") ||
-      formats.find((f) => f.hasVideo && f.hasAudio) ||
-      formats[0];
-    return standardFallback ? standardFallback.itag : "18";
+    if (preference === "4k") {
+      // Prefer a video-only 2160p stream; server merges best audio
+      const f =
+        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 2160) ||
+        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1440);
+      if (f) return { itag: f.itag, merge: true };
+      // Fall back to best combined if no 4K adaptive available
+      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
+      return combined ? { itag: combined.itag, merge: false } : fallback;
+    }
+
+    if (preference === "high") {
+      const f =
+        formats.find((f) => f.hasVideo && f.hasAudio && f.height >= 1080) ||
+        formats.find((f) => f.hasVideo && f.hasAudio && f.height >= 720) ||
+        formats.find((f) => f.hasVideo && f.hasAudio);
+      return f ? { itag: f.itag, merge: false } : fallback;
+    }
+
+    if (preference === "medium") {
+      const f =
+        formats.find((f) => f.hasVideo && f.hasAudio && f.height === 480) ||
+        formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 480) ||
+        formats.find((f) => f.hasVideo && f.hasAudio);
+      return f ? { itag: f.itag, merge: false } : fallback;
+    }
+
+    if (preference === "low") {
+      const f =
+        formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 360) ||
+        formats.find((f) => f.hasVideo && f.hasAudio);
+      return f ? { itag: f.itag, merge: false } : fallback;
+    }
+
+    return fallback;
   };
 
   const filteredVideos = playlistData
@@ -175,7 +215,7 @@ export default function PlaylistDownloader() {
       )
     : [];
 
-  // ─── Sequential Download Queue & ZIP Compiling ──────────────────────────────────
+  // ─── Sequential download queue ────────────────────────────────────────────────
 
   const startDownloadQueue = async () => {
     if (!playlistData || selectedVideos.size === 0 || isDownloading) return;
@@ -184,7 +224,6 @@ export default function PlaylistDownloader() {
 
     const selected = playlistData.videos.filter((v) => selectedVideos.has(v.id));
 
-    // Init queue state
     const initial: Record<string, DownloadState> = {};
     selected.forEach((v) => {
       initial[v.id] = { id: v.id, status: "idle", progress: 0, downloadedMb: "0.0" };
@@ -198,66 +237,62 @@ export default function PlaylistDownloader() {
       const video = selected[i];
       setCurrentIndex(i);
 
-      let chosenItag = "18"; // 360p fallback
+      let chosenItag = "18";
+      let needsMerge = false;
       let expectedSize: number | undefined;
+
       try {
         setQueue((prev) => ({
           ...prev,
           [video.id]: { id: video.id, status: "downloading", progress: 5, downloadedMb: "0.0" },
         }));
-        const infoRes = await fetch(
-          `/api/info?url=${encodeURIComponent(video.url)}`
-        );
+
+        const infoRes = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
         if (infoRes.ok) {
           const info = await infoRes.json();
           const formats = info.formats as VideoFormat[];
-          chosenItag = getTargetItag(formats, qualityPreference);
+          const target = getTargetFormat(formats, qualityPreference);
+          chosenItag = target.itag;
+          needsMerge = target.merge;
+
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           if (chosenFormat?.contentLength) {
             expectedSize = chosenFormat.contentLength;
+          } else if (video.duration > 0) {
+            const isAudio = qualityPreference === "audio";
+            const height = chosenFormat?.height ?? 0;
+            expectedSize = estimateSize(video.duration, height, isAudio);
           }
         }
       } catch (err) {
-        console.warn("Failed to look up itag for", video.id, "— using 360p fallback", err);
+        console.warn("Failed to look up format for", video.id, err);
       }
 
-      // If filesize metadata is missing, calculate a fallback estimation using standard bitrates and duration
+      // Final fallback size
       if (!expectedSize) {
-        if (video.duration && video.duration > 0) {
-          const bitrateMap: Record<string, number> = {
-            high: 1500 * 1000,   // 1.5 Mbps
-            medium: 800 * 1000,   // 800 Kbps
-            low: 400 * 1000,      // 400 Kbps
-            audio: 128 * 1000,    // 128 Kbps
-          };
-          const bps = bitrateMap[qualityPreference] ?? 400 * 1000;
-          expectedSize = (video.duration * bps) / 8;
-        } else {
-          // Hard static defaults as absolute fallbacks
-          const defaultMap: Record<string, number> = {
-            high: 20 * 1024 * 1024,
-            medium: 10 * 1024 * 1024,
-            low: 5 * 1024 * 1024,
-            audio: 2 * 1024 * 1024,
-          };
-          expectedSize = defaultMap[qualityPreference] ?? 5 * 1024 * 1024;
-        }
+        const sizeMap: Record<QualityPreference, number> = {
+          "4k":    500 * 1024 * 1024,
+          high:     20 * 1024 * 1024,
+          medium:   10 * 1024 * 1024,
+          low:       5 * 1024 * 1024,
+          audio:     2 * 1024 * 1024,
+        };
+        expectedSize = sizeMap[qualityPreference];
       }
 
       try {
-        const downloadResult = await executeDownloadToBlob(
+        const result = await executeDownloadToBlob(
           video.url,
           chosenItag,
           video.title,
           video.id,
-          (state) => {
-            setQueue((prev) => ({ ...prev, [video.id]: state }));
-          },
-          expectedSize
+          (state) => setQueue((prev) => ({ ...prev, [video.id]: state })),
+          expectedSize,
+          needsMerge
         );
 
-        if (downloadResult) {
-          zip.file(downloadResult.filename, downloadResult.blob);
+        if (result) {
+          zip.file(result.filename, result.blob);
           successfulDownloads++;
         } else {
           setQueue((prev) => ({
@@ -266,7 +301,7 @@ export default function PlaylistDownloader() {
           }));
         }
       } catch (err) {
-        console.error("Streaming error during playlist item compilation:", video.id, err);
+        console.error("Download error for", video.id, err);
         setQueue((prev) => ({
           ...prev,
           [video.id]: { id: video.id, status: "failed", progress: 0, downloadedMb: "0.0" },
@@ -288,7 +323,7 @@ export default function PlaylistDownloader() {
         URL.revokeObjectURL(zipUrl);
         setZipStatus("completed");
       } catch (err) {
-        console.error("Failed to compile ZIP archive:", err);
+        console.error("Failed to compile ZIP:", err);
         setZipStatus("failed");
       }
     } else {
@@ -299,8 +334,7 @@ export default function PlaylistDownloader() {
     setCurrentIndex(-1);
   };
 
-
-  // ─── Queue status icon helper ─────────────────────────────────────────────────
+  // ─── Queue status icon ────────────────────────────────────────────────────────
 
   const QueueIcon = ({ videoId }: { videoId: string }) => {
     const s = queue[videoId];
@@ -323,7 +357,6 @@ export default function PlaylistDownloader() {
 
   return (
     <div className="w-full flex flex-col items-center">
-      {/* URL Input */}
       <UrlInput
         value={url}
         onChange={setUrl}
@@ -333,20 +366,18 @@ export default function PlaylistDownloader() {
         submitLabel="Extract"
       />
 
-      {/* Error */}
-      {error && (
-        <ErrorBanner title="Failed to Load Playlist" message={error} />
-      )}
+      {error && <ErrorBanner title="Failed to Load Playlist" message={error} />}
 
-      {/* Playlist Panel */}
       {playlistData && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 mt-8 items-start"
         >
-          {/* Left: Overview card */}
+          {/* ── Left: Controls card ── */}
           <div className="lg:col-span-4 glass-panel rounded-3xl p-6 border border-white/5 flex flex-col gap-5 self-start">
+
+            {/* Playlist thumbnail */}
             <div className="relative aspect-video rounded-xl overflow-hidden shadow-lg border border-white/10">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -370,69 +401,60 @@ export default function PlaylistDownloader() {
 
             <hr className="border-white/5" />
 
-            {/* Quality Selector */}
+            {/* Quality dropdown */}
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Settings className="w-3.5 h-3.5 text-brand-purple" />
                 Target Quality
               </label>
-              <div className="relative">
-                <select
-                  value={qualityPreference}
-                  disabled={isDownloading}
-                  onChange={(e) => setQualityPreference(e.target.value as any)}
-                  className="w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-purple/50 appearance-none cursor-pointer disabled:opacity-50"
-                >
-                  <option value="high">High Quality Video (720p/1080p)</option>
-                  <option value="medium">Medium Quality Video (480p)</option>
-                  <option value="low">Low Quality Video (360p)</option>
-                  <option value="audio">Audio Only (M4A)</option>
-                </select>
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
+              <Dropdown<QualityPreference>
+                options={QUALITY_OPTIONS}
+                value={qualityPreference}
+                onChange={setQualityPreference}
+                disabled={isDownloading}
+              />
+              {qualityPreference === "4k" && (
+                <p className="text-[10px] text-amber-400/80 leading-snug mt-0.5">
+                  4K requires ffmpeg installed on the server for audio merging.
+                </p>
+              )}
             </div>
 
-            {/* Quantity Selector */}
+            {/* Quantity limit */}
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-brand-pink" />
                 Quantity Limit
               </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  max={playlistData.videos.length}
-                  value={quantityLimit}
-                  disabled={isDownloading}
-                  onChange={(e) => handleQuantityChange(e.target.value)}
-                  placeholder="No. of videos"
-                  className="w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-pink/50 disabled:opacity-50"
-                />
-              </div>
-              {/* Quick selection tags */}
-              <div className="flex flex-wrap gap-1.5 mt-0.5">
-                {[5, 10, 25, 50].map((num) => (
-                  num <= playlistData.videos.length && (
-                    <button
-                      key={num}
-                      type="button"
-                      disabled={isDownloading}
-                      onClick={() => handleQuantityChange(num.toString())}
-                      className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${
-                        quantityLimit === num.toString()
-                          ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40"
-                          : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"
-                      }`}
-                    >
-                      First {num}
-                    </button>
-                  )
-                ))}
+              <input
+                type="number"
+                min="1"
+                max={playlistData.videos.length}
+                value={quantityLimit}
+                disabled={isDownloading}
+                onChange={(e) => handleQuantityChange(e.target.value)}
+                placeholder="No. of videos"
+                className="w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-pink/50 disabled:opacity-50 transition-colors"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {[5, 10, 25, 50].map(
+                  (num) =>
+                    num <= playlistData.videos.length && (
+                      <button
+                        key={num}
+                        type="button"
+                        disabled={isDownloading}
+                        onClick={() => handleQuantityChange(num.toString())}
+                        className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${
+                          quantityLimit === num.toString()
+                            ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40"
+                            : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"
+                        }`}
+                      >
+                        First {num}
+                      </button>
+                    )
+                )}
               </div>
             </div>
 
@@ -478,7 +500,7 @@ export default function PlaylistDownloader() {
                 )}
               </button>
 
-              {/* Status notifications */}
+              {/* Status banners */}
               {zipStatus === "zipping" && (
                 <div className="w-full bg-brand-purple/10 border border-brand-purple/20 p-3 rounded-xl flex flex-col gap-1.5 text-brand-purple">
                   <span className="flex items-center gap-1.5 text-xs font-bold animate-pulse">
@@ -497,7 +519,7 @@ export default function PlaylistDownloader() {
                   <div className="text-[11px] leading-tight">
                     <span className="font-bold block">Compilation Complete!</span>
                     <span className="text-zinc-400">
-                      The `.zip` archive was saved with your movie title.
+                      Your ZIP archive has been saved.
                     </span>
                   </div>
                 </div>
@@ -507,15 +529,14 @@ export default function PlaylistDownloader() {
                 <div className="w-full bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-start gap-2.5 text-red-400">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="text-[11px] leading-tight">
-                    <span className="font-bold block">Aggregation Interrupted</span>
+                    <span className="font-bold block">Download Failed</span>
                     <span className="text-zinc-400">
-                      ZIP file could not be generated. Ensure downloads succeed.
+                      ZIP could not be generated. Ensure downloads succeed.
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* Reset button after queue finishes */}
               {!isDownloading && Object.keys(queue).length > 0 && (
                 <button
                   onClick={() => {
@@ -535,10 +556,8 @@ export default function PlaylistDownloader() {
             </div>
           </div>
 
-
-          {/* Right: Video list */}
+          {/* ── Right: Video list ── */}
           <div className="lg:col-span-8 glass-panel rounded-3xl border border-white/5 overflow-hidden">
-            {/* Search + header */}
             <div className="p-4 border-b border-white/5 flex items-center gap-3">
               <Search className="w-4 h-4 text-zinc-500 shrink-0" />
               <input
@@ -561,7 +580,6 @@ export default function PlaylistDownloader() {
                       : "hover:bg-white/[0.02]"
                   }`}
                 >
-                  {/* Checkbox */}
                   <div className="shrink-0 text-brand-purple">
                     {selectedVideos.has(video.id) ? (
                       <CheckSquare className="w-4 h-4" />
@@ -570,7 +588,6 @@ export default function PlaylistDownloader() {
                     )}
                   </div>
 
-                  {/* Thumbnail */}
                   <div className="relative w-20 aspect-video rounded-lg overflow-hidden border border-white/5 shrink-0">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -583,17 +600,13 @@ export default function PlaylistDownloader() {
                     </div>
                   </div>
 
-                  {/* Meta */}
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-zinc-200 line-clamp-2 leading-snug">
                       {video.title}
                     </p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">
-                      {video.author}
-                    </p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">{video.author}</p>
                   </div>
 
-                  {/* Queue status / play index */}
                   <div className="shrink-0 flex items-center gap-2">
                     <QueueIcon videoId={video.id} />
                     {!queue[video.id] && (

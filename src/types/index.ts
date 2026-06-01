@@ -23,6 +23,11 @@ export interface VideoFormat {
   mimeType: string;
   contentLength: number | null;
   fps: number | null;
+  /** Pixel height of the video stream, 0 for audio-only */
+  height: number;
+  /** Short codec name, e.g. "avc1", "vp9", "av01", "mp4a" */
+  vcodec: string | null;
+  acodec: string | null;
 }
 
 export interface PlaylistVideo {
@@ -62,3 +67,7 @@ export interface DownloadState {
 // ─── Tab ──────────────────────────────────────────────────────────────────────
 
 export type ActiveTab = "single" | "playlist";
+
+// ─── Quality Preference ───────────────────────────────────────────────────────
+
+export type QualityPreference = "4k" | "high" | "medium" | "low" | "audio";

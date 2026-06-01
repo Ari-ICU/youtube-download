@@ -6,6 +6,28 @@ const execFileAsync = promisify(execFile);
 
 const YTDLP = "yt-dlp";
 
+// ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
+const ALLOWED_HOSTS = [
+  "youtube.com",
+  "www.youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  "music.youtube.com",
+];
+
+function isAllowedUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    // Only allow https
+    if (parsed.protocol !== "https:") return false;
+    return ALLOWED_HOSTS.some(
+      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -17,12 +39,21 @@ export async function GET(request: Request) {
 
     const decodedUrl = decodeURIComponent(url);
 
-    // Dump all formats + video metadata as JSON
-    const { stdout } = await execFileAsync(YTDLP, [
-      "--dump-json",
-      "--no-playlist",
-      decodedUrl,
-    ]);
+    // ── Security: reject non-YouTube URLs ──────────────────────────────────────
+    if (!isAllowedUrl(decodedUrl)) {
+      return NextResponse.json(
+        { error: "Only YouTube URLs are supported." },
+        { status: 400 }
+      );
+    }
+
+    // Dump all formats + video metadata as JSON.
+    // execFile (not exec) prevents shell injection — args are passed as an array.
+    const { stdout } = await execFileAsync(
+      YTDLP,
+      ["--dump-json", "--no-playlist", decodedUrl],
+      { maxBuffer: 10 * 1024 * 1024 } // 10 MB cap
+    );
 
     const info = JSON.parse(stdout);
 
@@ -62,8 +93,8 @@ export async function GET(request: Request) {
 
     const formats = rawFormats
       .filter((f) => {
-        // Skip storyboard, dash manifests, etc.
-        if (f.protocol && (f.protocol.includes("m3u8") || f.protocol.includes("dash"))) return false;
+        // Skip HLS manifests and storyboards — keep HTTP/HTTPS and DASH
+        if (f.protocol && f.protocol.includes("m3u8")) return false;
         const hasVideo = f.vcodec && f.vcodec !== "none";
         const hasAudio = f.acodec && f.acodec !== "none";
         return hasVideo || hasAudio;
@@ -79,7 +110,6 @@ export async function GET(request: Request) {
           : "Audio";
 
         return {
-          // We use format_id as the "itag" equivalent
           itag: f.format_id,
           qualityLabel,
           container: f.ext ?? "mp4",
@@ -90,19 +120,24 @@ export async function GET(request: Request) {
             : `audio/${f.ext ?? "m4a"}`,
           contentLength: f.filesize ?? f.filesize_approx ?? null,
           fps: f.fps ?? null,
+          // Expose height so the client can sort/filter by resolution
+          height,
         };
       })
-      // Sort: combined first (video+audio), then video-only, then audio-only; by quality desc
+      // Sort: combined first, then video-only (highest res first), then audio-only
       .sort((a, b) => {
-        const score = (f: typeof a) =>
-          (f.hasVideo && f.hasAudio ? 300 : f.hasVideo ? 200 : 100) +
-          parseInt(f.qualityLabel) || 0;
-        return score(b) - score(a);
+        const tier = (f: typeof a) =>
+          f.hasVideo && f.hasAudio ? 3 : f.hasVideo ? 2 : 1;
+        if (tier(b) !== tier(a)) return tier(b) - tier(a);
+        return (b.height ?? 0) - (a.height ?? 0);
       });
 
     return NextResponse.json({ details, formats });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Failed to retrieve video information.";
+    const msg =
+      error instanceof Error
+        ? error.message
+        : "Failed to retrieve video information.";
     console.error("Error in /api/info:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
