@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-deps.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/check-deps.mjs",
     "build": "next build",
+    "prestart": "node scripts/check-deps.mjs",
     "start": "next start",
     "lint": "eslint"
   },

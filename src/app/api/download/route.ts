@@ -1,6 +1,18 @@
 import { spawn } from "child_process";
+import { mkdtemp, rm, stat } from "fs/promises";
+import { createReadStream } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const YTDLP = "yt-dlp";
+
+// Use web + android + android_vr clients:
+// - web/android: broad compatibility, works for region-restricted & low-format videos
+// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams that other clients omit
+const YTDLP_BASE_ARGS = [
+  "--extractor-args", "youtube:player_client=web,android,android_vr",
+  "--no-warnings",
+];
 
 // ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
 const ALLOWED_HOSTS = [
@@ -34,6 +46,7 @@ function isValidFormatId(id: string): boolean {
 
 export async function GET(request: Request) {
   let ytdlpProcess: ReturnType<typeof spawn> | null = null;
+  let tmpDir: string | null = null;
 
   try {
     const { searchParams } = new URL(request.url);
@@ -73,9 +86,10 @@ export async function GET(request: Request) {
       title.replace(/[^\w\s\-]/g, "").trim() || "youtube-download";
 
     // ── Determine output format ───────────────────────────────────────────────
-    // merge mode: video-only stream + best available audio merged into mkv/mp4
+    // merge mode: video-only stream + best available audio → must write to a
+    //             temp file first because ffmpeg cannot mux to a non-seekable pipe
     // audio mode: audio-only itag → m4a
-    // normal mode: combined stream → mp4
+    // normal mode: combined stream → mp4 (can pipe directly)
     const isAudioOnly =
       !merge &&
       (formatId.includes("audio") ||
@@ -93,37 +107,92 @@ export async function GET(request: Request) {
       "Cache-Control": "no-cache",
     });
 
-    // ── Build yt-dlp args ─────────────────────────────────────────────────────
-    let args: string[];
-
+    // ── Merge path: write to temp file, then stream back ─────────────────────
+    // ffmpeg (used by yt-dlp for muxing) requires a seekable output container.
+    // Piping to stdout produces a broken file with no audio track.
     if (merge) {
-      // For 4K / video-only adaptive streams: merge with best audio.
-      // yt-dlp writes the merged file to a temp path then we stream it.
-      // We use --merge-output-format mp4 and pipe via -o -
-      // Note: merging requires ffmpeg; yt-dlp handles this transparently.
-      args = [
-        "--no-playlist",
-        "-f", `${formatId}+bestaudio[ext=m4a]/bestaudio`,
-        "--merge-output-format", "mp4",
-        "-o", "-",
-        "--no-part",
-        decodedUrl,
-      ];
-    } else {
-      args = [
-        "--no-playlist",
-        "-f", formatId,
-        "-o", "-",
-        "--no-part",
-        decodedUrl,
-      ];
+      tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
+      const outPath = join(tmpDir, `output.mp4`);
+
+      // Format selector: try the exact itag first, then fall back to
+      // best video at the same height, then just best available.
+      // This handles cases where a specific format ID disappears between
+      // the /api/info call and the actual download.
+      const formatSelector =
+        `${formatId}+bestaudio[ext=m4a]/` +
+        `${formatId}+bestaudio/` +
+        `bestvideo+bestaudio[ext=m4a]/` +
+        `bestvideo+bestaudio/` +
+        `best`;
+
+      await new Promise<void>((resolve, reject) => {
+        ytdlpProcess = spawn(YTDLP, [
+          ...YTDLP_BASE_ARGS,
+          "--no-playlist",
+          "-f", formatSelector,
+          "--merge-output-format", "mp4",
+          "-o", outPath,
+          "--no-part",
+          decodedUrl,
+        ]);
+
+        const stderrChunks: Buffer[] = [];
+        ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) => stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        ytdlpProcess.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            const stderr = Buffer.concat(stderrChunks).toString();
+            console.error(`yt-dlp merge exited with code ${code}:`, stderr);
+            reject(new Error(`yt-dlp exited with code ${code}`));
+          }
+        });
+        ytdlpProcess.on("error", reject);
+      });
+
+      // Get file size for Content-Length
+      const { size } = await stat(outPath);
+      headers.set("Content-Length", String(size));
+
+      const nodeStream = createReadStream(outPath);
+      const readableStream = new ReadableStream({
+        start(controller) {
+          nodeStream.on("data", (chunk: Buffer | string) => {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            controller.enqueue(new Uint8Array(buf));
+          });
+          nodeStream.on("end", () => {
+            controller.close();
+            // Clean up temp dir after streaming
+            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          });
+          nodeStream.on("error", (err) => {
+            controller.error(err);
+            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          });
+        },
+        cancel() {
+          nodeStream.destroy();
+          if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        },
+      });
+
+      return new Response(readableStream, { headers });
     }
 
-    ytdlpProcess = spawn(YTDLP, args);
+    // ── Direct pipe path (combined or audio-only streams) ────────────────────
+    ytdlpProcess = spawn(YTDLP, [
+      ...YTDLP_BASE_ARGS,
+      "--no-playlist",
+      "-f", formatId,
+      "-o", "-",
+      "--no-part",
+      decodedUrl,
+    ]);
 
     const stderrChunks: Buffer[] = [];
-    ytdlpProcess.stderr?.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
+    ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) => {
+      stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
 
     const readableStream = new ReadableStream({
@@ -156,6 +225,7 @@ export async function GET(request: Request) {
     return new Response(readableStream, { headers });
   } catch (error: unknown) {
     ytdlpProcess?.kill("SIGTERM");
+    if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     const msg =
       error instanceof Error ? error.message : "Failed to start download.";
     console.error("Error in /api/download:", msg);

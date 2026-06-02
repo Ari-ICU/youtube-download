@@ -8,7 +8,7 @@ import type { VideoDetails, VideoFormat, DownloadState } from "@/types";
 import { executeDownload, formatDuration, estimateSize } from "@/utils/downloader";
 import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
-import DownloadProgress from "@/components/ui/DownloadProgress";
+import DownloadToast from "@/components/ui/DownloadToast";
 import QualityPreview from "@/components/ui/QualityPreview";
 import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 
@@ -21,6 +21,7 @@ export default function SingleDownloader() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
+  const [downloadTitle, setDownloadTitle] = useState<string>("");
   const [previewOpen, setPreviewOpen] = useState(false);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ export default function SingleDownloader() {
       format?.contentLength ??
       (duration > 0 ? estimateSize(duration, height, isAudio) : 10 * 1024 * 1024);
 
+    setDownloadTitle(data.details.title);
     executeDownload(
       url,
       itag,
@@ -86,6 +88,13 @@ export default function SingleDownloader() {
       />
 
       {error && <ErrorBanner title="Failed to Load Content" message={error} />}
+
+      {/* Floating download progress toast */}
+      <DownloadToast
+        state={downloadState}
+        title={downloadTitle}
+        onDismiss={() => setDownloadState(null)}
+      />
 
       {/* Video preview modal */}
       {data && previewOpen && (
@@ -171,8 +180,6 @@ export default function SingleDownloader() {
 
             {/* ── Right: Quality Preview + Progress ── */}
             <div className="md:col-span-7 flex flex-col gap-4">
-              {downloadState && <DownloadProgress state={downloadState} />}
-
               <div>
                 <h3 className="text-xs font-extrabold text-zinc-400 uppercase tracking-widest mb-3">
                   Select Quality to Download

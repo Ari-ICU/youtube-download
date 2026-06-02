@@ -16,6 +16,7 @@ import ErrorBanner from "@/components/ui/ErrorBanner";
 import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
 import QualityPreview from "@/components/ui/QualityPreview";
 import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
+import DownloadToast from "@/components/ui/DownloadToast";
 
 const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "4k",    label: "4K / 2160p UHD", description: "Requires ffmpeg merge", icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />, badge: "4K" },
@@ -46,6 +47,9 @@ export default function PlaylistDownloader() {
   const [previewFormats, setPreviewFormats] = useState<Record<string, VideoFormat[] | "loading" | "error">>({});
   // Video modal state
   const [modalVideo, setModalVideo] = useState<PlaylistVideo | null>(null);
+  // Single-video download toast
+  const [singleDownloadState, setSingleDownloadState] = useState<DownloadState | null>(null);
+  const [singleDownloadTitle, setSingleDownloadTitle] = useState<string>("");
 
   const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -150,9 +154,9 @@ export default function PlaylistDownloader() {
     const isAudio = !format?.hasVideo && !!format?.hasAudio;
     const height = format?.height ?? 0;
     const size = format?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
-    // Use executeDownload (triggers browser save-as) rather than blob accumulation
+    setSingleDownloadTitle(video.title);
     import("@/utils/downloader").then(({ executeDownload }) => {
-      executeDownload(video.url, itag, video.title, video.id, () => {}, size, needsMerge);
+      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, needsMerge);
     });
   };
 
@@ -225,6 +229,13 @@ export default function PlaylistDownloader() {
         placeholder="Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"
         isLoading={isAnalyzing} submitLabel="Extract" />
       {error && <ErrorBanner title="Failed to Load Playlist" message={error} />}
+
+      {/* Floating single-video download toast */}
+      <DownloadToast
+        state={singleDownloadState}
+        title={singleDownloadTitle}
+        onDismiss={() => setSingleDownloadState(null)}
+      />
 
       {/* ── Video preview modal ── */}
       {modalVideo && Array.isArray(previewFormats[modalVideo.id]) && (

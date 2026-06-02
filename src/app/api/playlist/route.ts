@@ -3,6 +3,14 @@ import { execFile } from "child_process";
 
 const YTDLP = "yt-dlp";
 
+// Use web + android + android_vr clients:
+// - web/android: broad compatibility, works for region-restricted & low-format videos
+// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams that other clients omit
+const YTDLP_BASE_ARGS = [
+  "--extractor-args", "youtube:player_client=web,android,android_vr",
+  "--no-warnings",
+];
+
 // ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
 const ALLOWED_HOSTS = [
   "youtube.com",
@@ -70,9 +78,9 @@ export async function GET(request: Request) {
     }
 
     const stdout = await runYtDlp([
+      ...YTDLP_BASE_ARGS,
       "--flat-playlist",
       "--dump-single-json",
-      "--no-warnings",
       decodedUrl,
     ]);
 
