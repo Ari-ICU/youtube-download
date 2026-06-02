@@ -9,7 +9,17 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # Single worker ensures the in-process SSE token registry is consistent
+      # across /api/download/progress and /api/download/file requests.
+      - NEXT_SHARP_PATH=/tmp/node_modules/sharp
     restart: unless-stopped
-    # Limit temp file growth — merge jobs write to /tmp inside the container
+    # /tmp is used for yt-dlp merge temp files and SSE token file staging.
+    # 4 GB gives headroom for several concurrent 4K downloads.
     tmpfs:
       - /tmp:size=4g,mode=1777
+    # Optional: cap memory to prevent runaway ffmpeg jobs from OOM-killing the host
+    deploy:
+      resources:
+        limits:
+          memory: 2g

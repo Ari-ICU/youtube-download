@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, CheckCircle2, AlertCircle, X } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, X, Scissors } from "lucide-react";
 import type { DownloadState } from "@/types";
 
 interface DownloadToastProps {
@@ -30,6 +30,8 @@ export default function DownloadToast({ state, title, onDismiss }: DownloadToast
   const isCompleted   = state.status === "completed";
   const isFailed      = state.status === "failed";
   const hasProgress   = state.progress > 0;
+  const isMerging     = state.phase === "merging";
+  const isTransferring = state.phase === "transferring";
 
   return createPortal(
     <AnimatePresence>
@@ -52,7 +54,13 @@ export default function DownloadToast({ state, title, onDismiss }: DownloadToast
           {/* Progress bar stripe at top */}
           {isDownloading && (
             <div className="w-full h-0.5 bg-white/5 overflow-hidden relative">
-              {hasProgress ? (
+              {isMerging ? (
+                // Indeterminate during ffmpeg merge
+                <div
+                  className="absolute h-full w-2/5 bg-gradient-to-r from-transparent via-amber-500 to-orange-400 rounded-full"
+                  style={{ animation: "toast-slide 1.5s ease-in-out infinite" }}
+                />
+              ) : hasProgress ? (
                 <div
                   className="h-full bg-gradient-to-r from-violet-500 to-pink-500 transition-all duration-300"
                   style={{ width: `${state.progress}%` }}
@@ -69,7 +77,8 @@ export default function DownloadToast({ state, title, onDismiss }: DownloadToast
           <div className="px-4 py-3.5 flex items-start gap-3">
             {/* Icon */}
             <div className="shrink-0 mt-0.5">
-              {isDownloading && <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />}
+              {isDownloading && !isMerging && <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />}
+              {isDownloading && isMerging   && <Scissors className="w-4 h-4 text-amber-400 animate-pulse" />}
               {isCompleted   && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
               {isFailed      && <AlertCircle  className="w-4 h-4 text-red-400"     />}
             </div>
@@ -80,9 +89,13 @@ export default function DownloadToast({ state, title, onDismiss }: DownloadToast
 
               {isDownloading && (
                 <p className="text-[10px] text-zinc-400 mt-0.5">
-                  {hasProgress
-                    ? `${state.progress}% · ${state.downloadedMb} MB`
-                    : `Buffering… ${state.downloadedMb} MB`}
+                  {isMerging
+                    ? "Merging video + audio…"
+                    : isTransferring
+                    ? `Saving to disk… ${state.downloadedMb} MB`
+                    : hasProgress
+                    ? `${state.progress}% · ${state.downloadedMb} MB${state.speedMbps ? ` · ${state.speedMbps}` : ""}`
+                    : `Starting… ${state.downloadedMb} MB`}
                 </p>
               )}
               {isCompleted && (
@@ -97,7 +110,7 @@ export default function DownloadToast({ state, title, onDismiss }: DownloadToast
               )}
 
               {/* Inline progress bar for downloading */}
-              {isDownloading && hasProgress && (
+              {isDownloading && hasProgress && !isMerging && (
                 <div className="mt-2 w-full h-1 bg-white/[0.08] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-violet-500 to-pink-500 rounded-full transition-all duration-300"

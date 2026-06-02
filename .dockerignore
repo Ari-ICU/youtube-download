@@ -1,0 +1,22 @@
+# Dependencies — reinstalled inside the image
+node_modules
+
+# Next.js build output — rebuilt inside the image
+.next
+
+# Git history — not needed in the image
+.git
+.gitignore
+
+# Local env files — never bake secrets into the image
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.vscode
+.DS_Store
+*.log
+
+# Test artefacts
+coverage

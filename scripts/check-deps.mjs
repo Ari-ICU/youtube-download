@@ -5,7 +5,14 @@
  * Verifies that ffmpeg and yt-dlp are on PATH before the Next.js server starts.
  * Exits with code 1 and a helpful install message if either is missing.
  * Run automatically via the "predev" and "prestart" npm scripts.
+ *
+ * Set SKIP_DEP_CHECK=1 to bypass (used inside Docker builder stage).
  */
+
+if (process.env.SKIP_DEP_CHECK === "1") {
+  console.log("  ⚙  SKIP_DEP_CHECK=1 — skipping dependency check (Docker build).\n");
+  process.exit(0);
+}
 
 import { execFile } from "child_process";
 import { promisify } from "util";

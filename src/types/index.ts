@@ -62,6 +62,10 @@ export interface DownloadState {
   progress: number;
   /** Human-readable size of data received so far, e.g. "12.4" (MB) */
   downloadedMb: string;
+  /** Current speed, e.g. "1.20 MB/s" — only present during SSE downloads */
+  speedMbps?: string;
+  /** Phase of the download: downloading yt-dlp, merging ffmpeg, or transferring to browser */
+  phase?: "downloading" | "merging" | "transferring";
 }
 
 // ─── Tab ──────────────────────────────────────────────────────────────────────
