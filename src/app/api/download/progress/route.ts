@@ -174,12 +174,23 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (name: string, data: unknown) => {
-        try { controller.enqueue(encoder.encode(sseEvent(name, data))); } catch { /* closed */ }
-      };
 
       let tmpDir: string | null = null;
       let proc: ReturnType<typeof spawn> | null = null;
+      let controllerClosed = false;
+
+      // Safe close: idempotent, prevents double-close crashes
+      const closeController = () => {
+        if (controllerClosed) return;
+        controllerClosed = true;
+        try { controller.close(); } catch { /* already closed */ }
+      };
+
+      // Safe send: no-ops once the controller is closed
+      const safeSend = (name: string, data: unknown) => {
+        if (controllerClosed) return;
+        try { controller.enqueue(encoder.encode(sseEvent(name, data))); } catch { /* closed */ }
+      };
 
       try {
         tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
@@ -203,25 +214,34 @@ export async function GET(request: Request) {
 
         proc = spawn(YTDLP, ytArgs);
 
-        // Parse progress from stdout (yt-dlp writes [download] lines to stdout, not stderr)
-        let stdoutBuf = "";
-        proc.stdout?.on("data", (chunk: Buffer) => {
-          stdoutBuf += chunk.toString("utf8");
-          const lines = stdoutBuf.split("\n");
-          stdoutBuf = lines.pop() ?? "";
+        // yt-dlp writes [download] progress lines to stderr.
+        // We collect them in a buffer and flush on each newline.
+        let stderrBuf = "";
+
+        const onStderrData = (chunk: Buffer) => {
+          if (controllerClosed) return;
+          stderrBuf += chunk.toString("utf8");
+          const lines = stderrBuf.split("\n");
+          stderrBuf = lines.pop() ?? "";
           for (const line of lines) {
             const evt = parseLine(line);
-            if (evt) send("progress", evt);
+            if (evt) safeSend("progress", evt);
           }
-        });
+        };
+
+        proc.stderr?.on("data", onStderrData);
 
         const exitCode = await new Promise<number>((res, rej) => {
           proc!.on("close", (code) => {
+            // Detach the data listener before flushing so stale events
+            // can't fire after we close the controller below.
+            proc!.stderr?.removeListener("data", onStderrData);
+
             // Flush any remaining buffered line (no trailing newline)
-            if (stdoutBuf.trim()) {
-              const evt = parseLine(stdoutBuf.trim());
-              if (evt) send("progress", evt);
-              stdoutBuf = "";
+            if (stderrBuf.trim()) {
+              const evt = parseLine(stderrBuf.trim());
+              if (evt) safeSend("progress", evt);
+              stderrBuf = "";
             }
             res(code ?? 1);
           });
@@ -229,8 +249,8 @@ export async function GET(request: Request) {
         });
 
         if (exitCode !== 0) {
-          send("error", { message: `yt-dlp exited with code ${exitCode}` });
-          controller.close();
+          safeSend("error", { message: `yt-dlp exited with code ${exitCode}` });
+          closeController();
           if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
           return;
         }
@@ -239,19 +259,19 @@ export async function GET(request: Request) {
         const { size } = await stat(outPath);
         const token = registerToken(outPath, tmpDir);
 
-        send("ready", {
+        safeSend("ready", {
           token,
           filename: `${sanitizedTitle}.${ext}`,
           sizeMb: (size / 1024 / 1024).toFixed(1),
           mimeType: isAudioOnly ? "audio/mp4" : "video/mp4",
         });
 
-        controller.close();
+        closeController();
       } catch (err) {
         proc?.kill("SIGTERM");
         if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-        send("error", { message: err instanceof Error ? err.message : "Unknown error" });
-        controller.close();
+        safeSend("error", { message: err instanceof Error ? err.message : "Unknown error" });
+        closeController();
       }
     },
   });
