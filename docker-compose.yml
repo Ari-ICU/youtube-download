@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: youtube-download-tool
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -18,6 +18,12 @@ services:
     # 4 GB gives headroom for several concurrent 4K downloads.
     tmpfs:
       - /tmp:size=4g,mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     # Optional: cap memory to prevent runaway ffmpeg jobs from OOM-killing the host
     deploy:
       resources:

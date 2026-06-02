@@ -69,7 +69,10 @@ function isAllowedUrl(raw: string): boolean {
   } catch { return false; }
 }
 
-const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+/]{1,60}$/;
+// yt-dlp format IDs are numeric or alphanumeric strings. The + operator is used
+// for merge selectors. Slash is NOT a valid format ID character and is removed
+// to prevent any path-like injection into yt-dlp -o arguments.
+const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+]{1,60}$/;
 
 // ─── Progress line parser ─────────────────────────────────────────────────────
 
@@ -88,34 +91,38 @@ function toMib(val: string, unit: string): number {
 }
 
 function parseLine(line: string): ProgressEvent | null {
+  // yt-dlp --newline output format:
   // [download]  12.3% of  164.86MiB at    1.20MiB/s ETA 02:10
+  // Capture: percent, total size (with unit), speed (with unit)
   const m = line.match(
-    /\[download\]\s+([\d.]+)%\s+of\s+[\d.]+\S+\s+at\s+([\d.]+)(MiB|KiB|GiB)\/s/
+    /\[download\]\s+([\d.]+)%\s+of\s+([\d.]+)(MiB|KiB|GiB|B)\s+at\s+([\d.]+)(MiB|KiB|GiB|B)\/s/
   );
   if (m) {
-    const speedMb = toMib(m[2], m[3]);
+    const pct   = parseFloat(m[1]);
+    const total = toMib(m[2], m[3]);
+    const speed = toMib(m[4], m[5]);
+    const done  = (pct / 100) * total;
     return {
-      percent: parseFloat(m[1]),
-      downloadedMb: (parseFloat(m[1]) / 100).toFixed(1), // approximate; overridden below
-      speedMbps: `${speedMb.toFixed(1)} MB/s`,
+      percent: pct,
+      downloadedMb: done.toFixed(1),
+      speedMbps: `${speed.toFixed(2)} MB/s`,
       phase: "downloading",
     };
   }
 
-  // Better: extract downloaded bytes from lines like:
-  // [download]  12.3% of  164.86MiB at ... (164.86MiB total, 20.25MiB downloaded)
+  // Fallback: percent only line (no size info available yet)
+  // [download]  12.3% of Unknown at    1.20MiB/s
   const m2 = line.match(
-    /\[download\]\s+([\d.]+)%\s+of\s+([\d.]+)(MiB|KiB|GiB)\s+at\s+([\d.]+)(MiB|KiB|GiB)\/s/
+    /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)(MiB|KiB|GiB|B)\s/
   );
   if (m2) {
-    const pct    = parseFloat(m2[1]);
-    const total  = toMib(m2[2], m2[3]);
-    const speed  = toMib(m2[4], m2[5]);
-    const done   = (pct / 100) * total;
+    const pct   = parseFloat(m2[1]);
+    const total = toMib(m2[2], m2[3]);
+    const done  = (pct / 100) * total;
     return {
       percent: pct,
       downloadedMb: done.toFixed(1),
-      speedMbps: `${speed.toFixed(1)} MB/s`,
+      speedMbps: "",
       phase: "downloading",
     };
   }
@@ -157,7 +164,7 @@ export async function GET(request: Request) {
     return new Response("Invalid format ID.", { status: 400 });
   }
 
-  const sanitizedTitle = title.replace(/[^\w\s\-]/g, "").trim() || "youtube-download";
+  const sanitizedTitle = title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
   const isAudioOnly = !merge && (
     formatId.includes("audio") || formatId.endsWith("a") || parseInt(formatId, 10) > 600
   );

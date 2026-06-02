@@ -35,14 +35,10 @@ function isAllowedUrl(raw: string): boolean {
   }
 }
 
-// ─── Security: validate format IDs to prevent argument injection ──────────────
-// yt-dlp format IDs are alphanumeric with +, -, /, . and at most 60 chars.
-// The merge pattern "videoId+audioId" is also valid.
-const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+/]{1,60}$/;
-
-function isValidFormatId(id: string): boolean {
-  return FORMAT_ID_RE.test(id);
-}
+// yt-dlp format IDs are numeric or alphanumeric strings. The + operator is used
+// for merge selectors (e.g. "137+140"). Slash is NOT a valid format ID character
+// and is removed to prevent any path-like injection into yt-dlp -o arguments.
+const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+]{1,60}$/;
 
 export async function GET(request: Request) {
   let ytdlpProcess: ReturnType<typeof spawn> | null = null;
@@ -55,6 +51,8 @@ export async function GET(request: Request) {
     const title = searchParams.get("title") ?? "video";
     // merge=true means the client wants yt-dlp to merge a video-only + best audio
     const merge = searchParams.get("merge") === "true";
+    // size hint from the client (yt-dlp contentLength) — used to set Content-Length
+    const sizeHint = parseInt(searchParams.get("size") ?? "0", 10) || 0;
 
     if (!url || !formatId) {
       return new Response(
@@ -74,16 +72,16 @@ export async function GET(request: Request) {
     }
 
     // ── Security: validate format ID to prevent argument injection ────────────
-    if (!isValidFormatId(formatId)) {
+    if (!FORMAT_ID_RE.test(formatId)) {
       return new Response(
         JSON.stringify({ error: "Invalid format ID." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // Sanitize filename — strip everything except word chars, spaces, hyphens
+    // Sanitize filename — strip everything except word chars, spaces, hyphens; cap at 200 chars
     const sanitizedTitle =
-      title.replace(/[^\w\s\-]/g, "").trim() || "youtube-download";
+      title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
 
     // ── Determine output format ───────────────────────────────────────────────
     // merge mode: video-only stream + best available audio → must write to a
@@ -106,6 +104,13 @@ export async function GET(request: Request) {
       "X-Accel-Buffering": "no",
       "Cache-Control": "no-cache",
     });
+
+    // Set Content-Length when we have a reliable size so the browser can show
+    // download progress. Only set it on the direct-pipe path (non-merge); the
+    // merge path gets its own Content-Length from stat() after ffmpeg finishes.
+    if (!merge && sizeHint > 0) {
+      headers.set("Content-Length", String(sizeHint));
+    }
 
     // ── Merge path: write to temp file, then stream back ─────────────────────
     // ffmpeg (used by yt-dlp for muxing) requires a seekable output container.

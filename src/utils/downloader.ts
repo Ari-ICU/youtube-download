@@ -43,7 +43,7 @@ async function streamToFile(
   id: string,
   totalBytes: number,
   onUpdate: (state: DownloadState) => void,
-): Promise<void> {
+): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Stream reader could not be initialised.");
 
@@ -78,6 +78,9 @@ async function streamToFile(
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(blobUrl);
+
+  // Return the final size string so callers can show it in the completed state
+  return formatBytes(receivedBytes);
 }
 
 // ─── SSE-based download (merge path) ─────────────────────────────────────────
@@ -96,7 +99,7 @@ async function executeDownloadWithSSE(
   id: string,
   onUpdate: (state: DownloadState) => void,
   merge: boolean,
-): Promise<void> {
+): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   const progressUrl =
@@ -106,7 +109,7 @@ async function executeDownloadWithSSE(
     `&title=${encodeURIComponent(title)}` +
     (merge ? "&merge=true" : "");
 
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const evtSource = new EventSource(progressUrl);
 
     evtSource.addEventListener("progress", (e) => {
@@ -163,8 +166,8 @@ async function executeDownloadWithSSE(
         const contentLength = response.headers.get("Content-Length");
         const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
 
-        await streamToFile(response, ready.filename, id, totalBytes, onUpdate);
-        resolve();
+        const finalMb = await streamToFile(response, ready.filename, id, totalBytes, onUpdate);
+        resolve(finalMb);
       } catch (err) {
         reject(err);
       }
@@ -197,14 +200,15 @@ async function executeDownloadDirect(
   id: string,
   onUpdate: (state: DownloadState) => void,
   expectedSize: number,
-): Promise<void> {
+): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   const apiUrl =
     `/api/download` +
     `?url=${encodeURIComponent(url)}` +
     `&itag=${encodeURIComponent(itag)}` +
-    `&title=${encodeURIComponent(title)}`;
+    `&title=${encodeURIComponent(title)}` +
+    (expectedSize > 0 ? `&size=${expectedSize}` : "");
 
   const response = await fetch(apiUrl);
 
@@ -219,7 +223,8 @@ async function executeDownloadDirect(
   const ext = (response.headers.get("Content-Type") ?? "").includes("audio") ? "m4a" : "mp4";
   const filename = `${sanitizeFilename(title)}.${ext}`;
 
-  await streamToFile(response, filename, id, totalBytes, onUpdate);
+  const finalMb = await streamToFile(response, filename, id, totalBytes, onUpdate);
+  return finalMb;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -234,16 +239,17 @@ export async function executeDownload(
   merge = false,
 ): Promise<void> {
   try {
+    let finalMb: string;
+
     if (merge) {
       // Merge path: SSE progress → file endpoint
-      await executeDownloadWithSSE(url, itag, title, id, onUpdate, true);
+      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true);
     } else {
       // Direct pipe: stream from /api/download with byte-counting progress
-      await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
+      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
     }
 
-    // Read final downloadedMb from last update (captured inside helpers)
-    onUpdate({ id, status: "completed", progress: 100, downloadedMb: "—" });
+    onUpdate({ id, status: "completed", progress: 100, downloadedMb: finalMb });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error(`[executeDownload] id=${id}`, message);

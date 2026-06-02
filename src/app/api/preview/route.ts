@@ -30,7 +30,10 @@ function isAllowedUrl(raw: string): boolean {
   } catch { return false; }
 }
 
-const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+/]{1,60}$/;
+// yt-dlp format IDs are numeric or alphanumeric strings. The + operator is used
+// for merge selectors. Slash is NOT a valid format ID character and is removed
+// to prevent any path-like injection into yt-dlp -o arguments.
+const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+]{1,60}$/;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

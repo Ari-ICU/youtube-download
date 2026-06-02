@@ -2,14 +2,30 @@ import { createReadStream } from "fs";
 import { rm, stat } from "fs/promises";
 import { consumeToken } from "../progress/route";
 
-// ─── Security: token is a UUID, validate strictly ─────────────────────────────
+// ─── Security ─────────────────────────────────────────────────────────────────
+
+// Token must be a v4 UUID — no other shapes accepted
 const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Allowlist MIME types we actually produce — prevents header injection via the
+// client-supplied ?mime= param
+const ALLOWED_MIMES: Record<string, true> = {
+  "video/mp4": true,
+  "audio/mp4": true,
+};
+
+// Strip everything except safe filename chars, cap at 200 chars.
+// Dots are stripped to prevent path traversal sequences like "../../"
+// even after sanitization. The extension (.mp4/.m4a) is added by the server.
+function sanitizeFilename(raw: string): string {
+  return raw.replace(/[^\w\s\-()]/g, "").trim().slice(0, 200) || "download";
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const token    = searchParams.get("token") ?? "";
-  const filename = searchParams.get("filename") ?? "download.mp4";
-  const mimeType = searchParams.get("mime") ?? "video/mp4";
+  const token        = searchParams.get("token") ?? "";
+  const rawFilename  = searchParams.get("filename") ?? "download.mp4";
+  const rawMime      = searchParams.get("mime") ?? "video/mp4";
 
   if (!TOKEN_RE.test(token)) {
     return new Response(JSON.stringify({ error: "Invalid token." }), {
@@ -17,6 +33,12 @@ export async function GET(request: Request) {
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  // Validate MIME against allowlist — prevents header injection
+  const mimeType = ALLOWED_MIMES[rawMime] ? rawMime : "application/octet-stream";
+
+  // Sanitize filename — strip dangerous chars, cap length
+  const filename = sanitizeFilename(rawFilename);
 
   const entry = consumeToken(token);
   if (!entry) {
