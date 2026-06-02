@@ -99,6 +99,7 @@ async function executeDownloadWithSSE(
   id: string,
   onUpdate: (state: DownloadState) => void,
   merge: boolean,
+  isAudio: boolean,
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -107,7 +108,8 @@ async function executeDownloadWithSSE(
     `?url=${encodeURIComponent(url)}` +
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
-    (merge ? "&merge=true" : "");
+    (merge ? "&merge=true" : "") +
+    (isAudio ? "&audio=true" : "");
 
   return new Promise<string>((resolve, reject) => {
     const evtSource = new EventSource(progressUrl);
@@ -237,15 +239,14 @@ export async function executeDownload(
   onUpdate: (state: DownloadState) => void,
   expectedSize?: number,
   merge = false,
+  isAudio = false,
 ): Promise<void> {
   try {
     let finalMb: string;
 
     if (merge) {
-      // Merge path: SSE progress → file endpoint
-      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true);
+      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio);
     } else {
-      // Direct pipe: stream from /api/download with byte-counting progress
       finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
     }
 
@@ -265,12 +266,11 @@ export async function executeDownloadToBlob(
   onUpdate: (state: DownloadState) => void,
   expectedSize?: number,
   merge = false,
+  isAudio = false,
 ): Promise<{ blob: Blob; filename: string } | null> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   try {
-    // For playlist ZIP building, always go through SSE+file or direct pipe
-    // and accumulate into a Blob instead of triggering browser save.
     let response: Response;
     let totalBytes = 0;
     let filename = `${sanitizeFilename(title)}.mp4`;
@@ -285,7 +285,8 @@ export async function executeDownloadToBlob(
           `?url=${encodeURIComponent(url)}` +
           `&itag=${encodeURIComponent(itag)}` +
           `&title=${encodeURIComponent(title)}` +
-          `&merge=true`;
+          `&merge=true` +
+          (isAudio ? "&audio=true" : "");
 
         const evtSource = new EventSource(progressUrl);
 

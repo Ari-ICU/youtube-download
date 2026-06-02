@@ -84,15 +84,13 @@ export async function GET(request: Request) {
       title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
 
     // ── Determine output format ───────────────────────────────────────────────
-    // merge mode: video-only stream + best available audio → must write to a
-    //             temp file first because ffmpeg cannot mux to a non-seekable pipe
-    // audio mode: audio-only itag → m4a
+    // merge mode: video-only stream + best available audio → temp file + ffmpeg
+    // audio mode: audio-only itag → m4a  (signalled by explicit ?audio=true)
     // normal mode: combined stream → mp4 (can pipe directly)
-    const isAudioOnly =
-      !merge &&
-      (formatId.includes("audio") ||
-        formatId.endsWith("a") ||
-        parseInt(formatId, 10) > 600);
+    //
+    // We rely on the explicit ?audio=true flag from the client rather than
+    // guessing from the format ID — high numeric IDs (700+) are 4K video, not audio.
+    const isAudioOnly = !merge && searchParams.get("audio") === "true";
 
     const mimeType = isAudioOnly ? "audio/mp4" : "video/mp4";
     const ext = isAudioOnly ? "m4a" : "mp4";

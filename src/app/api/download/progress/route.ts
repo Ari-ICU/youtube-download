@@ -165,9 +165,9 @@ export async function GET(request: Request) {
   }
 
   const sanitizedTitle = title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
-  const isAudioOnly = !merge && (
-    formatId.includes("audio") || formatId.endsWith("a") || parseInt(formatId, 10) > 600
-  );
+  // Use the explicit ?audio=true flag sent by the client — the format ID alone
+  // cannot reliably distinguish audio-only from 4K video (both have high numeric IDs).
+  const isAudioOnly = !merge && searchParams.get("audio") === "true";
   const ext = isAudioOnly ? "m4a" : "mp4";
 
   const encoder = new TextEncoder();

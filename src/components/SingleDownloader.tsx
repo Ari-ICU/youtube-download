@@ -68,7 +68,8 @@ export default function SingleDownloader() {
       itag,
       (state) => setDownloadState(state),
       size,
-      needsMerge
+      needsMerge,
+      isAudio
     );
   };
 

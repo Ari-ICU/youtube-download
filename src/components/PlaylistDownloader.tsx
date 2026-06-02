@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import {
   Download, CheckSquare, Square, Search, Play, RefreshCw,
   Loader2, CheckCircle2, AlertCircle, Settings, ShieldCheck,
-  Check, Sparkles, Video, Music, Layers, ChevronDown, Eye, X,
+  Check, Sparkles, Video, Music, Layers, ChevronDown, Eye, X, Scissors,
 } from "lucide-react";
 
 import type { PlaylistDetails, PlaylistVideo, VideoFormat, DownloadState, QualityPreference } from "@/types";
@@ -17,6 +17,7 @@ import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
 import QualityPreview from "@/components/ui/QualityPreview";
 import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 import DownloadToast from "@/components/ui/DownloadToast";
+import PlaylistToast, { type PlaylistQueueItem } from "@/components/ui/PlaylistToast";
 
 const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "4k",    label: "4K / 2160p UHD", description: "Requires ffmpeg merge", icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />, badge: "4K" },
@@ -50,6 +51,12 @@ export default function PlaylistDownloader() {
   // Single-video download toast
   const [singleDownloadState, setSingleDownloadState] = useState<DownloadState | null>(null);
   const [singleDownloadTitle, setSingleDownloadTitle] = useState<string>("");
+
+  // Playlist batch toast state
+  const [playlistToastItems, setPlaylistToastItems] = useState<PlaylistQueueItem[]>([]);
+  const [playlistToastVisible, setPlaylistToastVisible] = useState(false);
+  const [playlistToastCurrentId, setPlaylistToastCurrentId] = useState<string | null>(null);
+  const [playlistToastDone, setPlaylistToastDone] = useState(false);
 
   const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -156,7 +163,7 @@ export default function PlaylistDownloader() {
     const size = format?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
     setSingleDownloadTitle(video.title);
     import("@/utils/downloader").then(({ executeDownload }) => {
-      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, needsMerge);
+      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, needsMerge, isAudio);
     });
   };
 
@@ -164,18 +171,46 @@ export default function PlaylistDownloader() {
     if (!playlistData || selectedVideos.size === 0 || isDownloading) return;
     setIsDownloading(true); setZipStatus("idle"); setControlsOpen(false);
     const selected = playlistData.videos.filter((v) => selectedVideos.has(v.id));
+
+    // Initialise queue and toast state
     const initial: Record<string, DownloadState> = {};
     selected.forEach((v) => { initial[v.id] = { id: v.id, status: "idle", progress: 0, downloadedMb: "0.0" }; });
     setQueue(initial);
+
+    const initialToastItems: PlaylistQueueItem[] = selected.map((v) => ({
+      id: v.id,
+      title: v.title,
+      state: { id: v.id, status: "idle", progress: 0, downloadedMb: "0.0" },
+    }));
+    setPlaylistToastItems(initialToastItems);
+    setPlaylistToastVisible(true);
+    setPlaylistToastDone(false);
+    setPlaylistToastCurrentId(null);
+
+    // Helper: update both queue and toast for a given video
+    const updateVideoState = (videoId: string, state: DownloadState) => {
+      setQueue((prev) => ({ ...prev, [videoId]: state }));
+      setPlaylistToastItems((prev) =>
+        prev.map((item) => item.id === videoId ? { ...item, state } : item)
+      );
+    };
+
     const zip = new JSZip();
     let successfulDownloads = 0;
+
     for (let i = 0; i < selected.length; i++) {
       const video = selected[i];
       setCurrentIndex(i);
+      setPlaylistToastCurrentId(video.id);
+
       let chosenItag = "18", needsMerge = false;
       let expectedSize: number | undefined;
+      let chosenIsAudio = false;
+
+      // Mark as downloading while we fetch info
+      updateVideoState(video.id, { id: video.id, status: "downloading", progress: 0, downloadedMb: "0.0" });
+
       try {
-        setQueue((prev) => ({ ...prev, [video.id]: { id: video.id, status: "downloading", progress: 5, downloadedMb: "0.0" } }));
         const infoRes = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
         if (infoRes.ok) {
           const info = await infoRes.json();
@@ -183,22 +218,39 @@ export default function PlaylistDownloader() {
           const target = getTargetFormat(formats, qualityPreference);
           chosenItag = target.itag; needsMerge = target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
+          chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize = chosenFormat?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, chosenFormat?.height ?? 0, qualityPreference === "audio") : undefined);
         }
       } catch (err) { console.warn("Failed to look up format for", video.id, err); }
+
       if (!expectedSize) {
         const sizeMap: Record<QualityPreference, number> = { "4k": 500*1024*1024, high: 20*1024*1024, medium: 10*1024*1024, low: 5*1024*1024, audio: 2*1024*1024 };
         expectedSize = sizeMap[qualityPreference];
       }
+
       try {
-        const result = await executeDownloadToBlob(video.url, chosenItag, video.title, video.id, (state) => setQueue((prev) => ({ ...prev, [video.id]: state })), expectedSize, needsMerge);
-        if (result) { zip.file(result.filename, result.blob); successfulDownloads++; }
-        else setQueue((prev) => ({ ...prev, [video.id]: { id: video.id, status: "failed", progress: 0, downloadedMb: "0.0" } }));
+        const result = await executeDownloadToBlob(
+          video.url, chosenItag, video.title, video.id,
+          (state) => updateVideoState(video.id, state),
+          expectedSize, needsMerge, chosenIsAudio,
+        );
+        if (result) {
+          zip.file(result.filename, result.blob);
+          successfulDownloads++;
+          updateVideoState(video.id, { id: video.id, status: "completed", progress: 100, downloadedMb: result.blob.size > 0 ? (result.blob.size / 1024 / 1024).toFixed(1) : "—" });
+        } else {
+          updateVideoState(video.id, { id: video.id, status: "failed", progress: 0, downloadedMb: "0.0" });
+        }
       } catch (err) {
         console.error("Download error for", video.id, err);
-        setQueue((prev) => ({ ...prev, [video.id]: { id: video.id, status: "failed", progress: 0, downloadedMb: "0.0" } }));
+        updateVideoState(video.id, { id: video.id, status: "failed", progress: 0, downloadedMb: "0.0" });
       }
     }
+
+    // All videos done — mark toast as finished
+    setPlaylistToastCurrentId(null);
+    setPlaylistToastDone(true);
+
     if (successfulDownloads > 0) {
       setZipStatus("zipping");
       try {
@@ -216,8 +268,23 @@ export default function PlaylistDownloader() {
   const QueueIcon = ({ videoId }: { videoId: string }) => {
     const s = queue[videoId];
     if (!s || s.status === "idle") return null;
-    if (s.status === "downloading") return <span className="flex items-center gap-1 text-brand-purple text-[10px] font-bold shrink-0"><Loader2 className="w-3 h-3 animate-spin" />{s.progress}%</span>;
-    if (s.status === "completed") return <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />;
+    if (s.status === "downloading") {
+      const isMerging = s.phase === "merging";
+      const isTransferring = s.phase === "transferring";
+      return (
+        <span className="flex items-center gap-1 text-brand-purple text-[10px] font-bold shrink-0">
+          {isMerging
+            ? <Scissors className="w-3 h-3 text-amber-400 animate-pulse" />
+            : <Loader2 className="w-3 h-3 animate-spin" />}
+          {isMerging ? "merge" : isTransferring ? "saving" : `${s.progress}%`}
+        </span>
+      );
+    }
+    if (s.status === "completed") return (
+      <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-bold shrink-0">
+        <CheckCircle2 className="w-3.5 h-3.5" />{s.downloadedMb !== "—" ? `${s.downloadedMb}MB` : ""}
+      </span>
+    );
     if (s.status === "failed") return <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />;
     return null;
   };
@@ -236,6 +303,22 @@ export default function PlaylistDownloader() {
         title={singleDownloadTitle}
         onDismiss={() => setSingleDownloadState(null)}
       />
+
+      {/* Floating playlist batch progress toast */}
+      {playlistToastVisible && (
+        <PlaylistToast
+          items={playlistToastItems}
+          currentId={playlistToastCurrentId}
+          totalCount={playlistToastItems.length}
+          completedCount={playlistToastItems.filter((i) => i.state.status === "completed").length}
+          failedCount={playlistToastItems.filter((i) => i.state.status === "failed").length}
+          isFinished={playlistToastDone}
+          onDismiss={() => {
+            setPlaylistToastVisible(false);
+            setPlaylistToastItems([]);
+          }}
+        />
+      )}
 
       {/* ── Video preview modal ── */}
       {modalVideo && Array.isArray(previewFormats[modalVideo.id]) && (
