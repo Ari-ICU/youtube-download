@@ -28,6 +28,8 @@ export interface VideoFormat {
   /** Short codec name, e.g. "avc1", "vp9", "av01", "mp4a" */
   vcodec: string | null;
   acodec: string | null;
+  /** Video bitrate in kbps — used to rank formats at the same resolution */
+  vbr: number | null;
 }
 
 export interface PlaylistVideo {

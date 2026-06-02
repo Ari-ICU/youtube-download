@@ -203,12 +203,12 @@ export async function GET(request: Request) {
 
         proc = spawn(YTDLP, ytArgs);
 
-        // Parse progress from stderr
-        let stderrBuf = "";
-        proc.stderr?.on("data", (chunk: Buffer) => {
-          stderrBuf += chunk.toString("utf8");
-          const lines = stderrBuf.split("\n");
-          stderrBuf = lines.pop() ?? "";
+        // Parse progress from stdout (yt-dlp writes [download] lines to stdout, not stderr)
+        let stdoutBuf = "";
+        proc.stdout?.on("data", (chunk: Buffer) => {
+          stdoutBuf += chunk.toString("utf8");
+          const lines = stdoutBuf.split("\n");
+          stdoutBuf = lines.pop() ?? "";
           for (const line of lines) {
             const evt = parseLine(line);
             if (evt) send("progress", evt);
@@ -216,7 +216,15 @@ export async function GET(request: Request) {
         });
 
         const exitCode = await new Promise<number>((res, rej) => {
-          proc!.on("close", (code) => res(code ?? 1));
+          proc!.on("close", (code) => {
+            // Flush any remaining buffered line (no trailing newline)
+            if (stdoutBuf.trim()) {
+              const evt = parseLine(stdoutBuf.trim());
+              if (evt) send("progress", evt);
+              stdoutBuf = "";
+            }
+            res(code ?? 1);
+          });
           proc!.on("error", rej);
         });
 

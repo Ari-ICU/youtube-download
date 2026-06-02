@@ -19,7 +19,7 @@ import type { VideoFormat } from "@/types";
 interface QualityRow {
   format: VideoFormat;
   needsMerge: boolean;
-  tier: "uhd" | "hd" | "sd" | "audio";
+  tier: "4k" | "2k" | "hd" | "sd" | "audio";
 }
 
 interface QualityPreviewProps {
@@ -33,14 +33,25 @@ interface QualityPreviewProps {
 
 function getTier(f: VideoFormat): QualityRow["tier"] {
   if (!f.hasVideo) return "audio";
-  if (f.height >= 1440) return "uhd";
-  if (f.height >= 720) return "hd";
+  if (f.height >= 2160) return "4k";
+  if (f.height >= 1440) return "2k";
+  if (f.height >= 720)  return "hd";
   return "sd";
 }
 
 // Static colour maps — no dynamic Tailwind class strings
 const TIER_STYLES = {
-  uhd: {
+  "4k": {
+    border:       "border-rose-500/25",
+    bg:           "bg-rose-500/[0.05]",
+    hoverBg:      "hover:bg-rose-500/[0.10]",
+    hoverBorder:  "hover:border-rose-500/50",
+    badgeBg:      "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    bar:          "bg-rose-400",
+    iconHover:    "group-hover:text-rose-400",
+    dot:          "bg-rose-400",
+  },
+  "2k": {
     border:       "border-amber-500/25",
     bg:           "bg-amber-500/[0.05]",
     hoverBg:      "hover:bg-amber-500/[0.10]",
@@ -83,33 +94,45 @@ const TIER_STYLES = {
 } as const;
 
 const TIER_ICONS: Record<QualityRow["tier"], React.ReactNode> = {
-  uhd:   <Sparkles className="w-3 h-3 text-amber-400" />,
-  hd:    <Video    className="w-3 h-3 text-violet-400" />,
-  sd:    <Film     className="w-3 h-3 text-blue-400"   />,
-  audio: <Music    className="w-3 h-3 text-pink-400"   />,
+  "4k":  <Sparkles className="w-3 h-3 text-rose-400"   />,
+  "2k":  <Sparkles className="w-3 h-3 text-amber-400"  />,
+  hd:    <Video    className="w-3 h-3 text-violet-400"  />,
+  sd:    <Film     className="w-3 h-3 text-blue-400"    />,
+  audio: <Music    className="w-3 h-3 text-pink-400"    />,
 };
 
 /** Human-readable codec label */
-function codecLabel(vcodec: string | null, acodec: string | null, hasVideo: boolean): string {
+function codecLabel(vcodec: string | null, acodec: string | null, hasVideo: boolean, vbr: number | null): string {
   const v = (vcodec ?? "").toLowerCase();
   const a = (acodec ?? "").toLowerCase();
-  const vLabel = v.startsWith("av0") ? "AV1"
-    : v.startsWith("vp9") ? "VP9"
+  const vLabel = v.startsWith("av01") || v.startsWith("av1") ? "AV1"
+    : v.startsWith("vp09") || v.startsWith("vp9") ? "VP9"
     : v.startsWith("avc") ? "H.264"
+    : v.startsWith("hev") ? "HEVC"
     : v || "";
   const aLabel = a.startsWith("mp4a") ? "AAC"
     : a.startsWith("opus") ? "Opus"
     : a || "";
   if (!hasVideo) return aLabel || "Audio";
-  return [vLabel, aLabel].filter(Boolean).join(" + ") || "—";
+  
+  const parts = [vLabel, aLabel].filter(Boolean);
+  const codec = parts.join(" + ") || "—";
+  
+  // Show bitrate for video formats (helps users choose when same codec+res but different quality)
+  if (vbr && vbr > 0) {
+    const mbps = (vbr / 1000).toFixed(1);
+    return `${codec} · ${mbps} Mbps`;
+  }
+  return codec;
 }
 
 /** Short codec tag for the badge */
 function codecTag(vcodec: string | null): string {
   const v = (vcodec ?? "").toLowerCase();
-  if (v.startsWith("av0")) return "AV1";
-  if (v.startsWith("vp9")) return "VP9";
-  if (v.startsWith("avc")) return "H.264";
+  if (v.startsWith("av01") || v.startsWith("av1")) return "AV1";
+  if (v.startsWith("vp09") || v.startsWith("vp9")) return "VP9";
+  if (v.startsWith("avc"))  return "H.264";
+  if (v.startsWith("hev"))  return "HEVC";
   return "";
 }
 
@@ -207,7 +230,7 @@ function QualityCard({
       {/* Row 2: codec string */}
       <div className="flex items-center gap-1 text-[10px] text-zinc-500 min-w-0">
         <Film className="w-3 h-3 shrink-0 text-zinc-600" />
-        <span className="truncate">{codecLabel(format.vcodec ?? null, format.acodec ?? null, format.hasVideo)}</span>
+        <span className="truncate">{codecLabel(format.vcodec ?? null, format.acodec ?? null, format.hasVideo, format.vbr ?? null)}</span>
       </div>
 
       {/* Row 3: size bar */}
@@ -222,7 +245,7 @@ function QualityCard({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-const TIER_ORDER: QualityRow["tier"][] = ["uhd", "hd", "sd", "audio"];
+const TIER_ORDER: QualityRow["tier"][] = ["4k", "2k", "hd", "sd", "audio"];
 const INITIAL_SHOW = 8;
 
 export default function QualityPreview({
@@ -269,10 +292,11 @@ export default function QualityPreview({
 
   const tabs: { id: QualityRow["tier"] | "all"; label: string }[] = [
     { id: "all",   label: `All (${sorted.length})` },
-    ...(counts.uhd   > 0 ? [{ id: "uhd"   as const, label: `4K (${counts.uhd})`     }] : []),
-    ...(counts.hd    > 0 ? [{ id: "hd"    as const, label: `HD (${counts.hd})`      }] : []),
-    ...(counts.sd    > 0 ? [{ id: "sd"    as const, label: `SD (${counts.sd})`      }] : []),
-    ...(counts.audio > 0 ? [{ id: "audio" as const, label: `Audio (${counts.audio})`}] : []),
+    ...(counts["4k"]  > 0 ? [{ id: "4k"    as const, label: `4K (${counts["4k"]})`     }] : []),
+    ...(counts["2k"]  > 0 ? [{ id: "2k"    as const, label: `2K (${counts["2k"]})`     }] : []),
+    ...(counts.hd     > 0 ? [{ id: "hd"    as const, label: `HD (${counts.hd})`        }] : []),
+    ...(counts.sd     > 0 ? [{ id: "sd"    as const, label: `SD (${counts.sd})`        }] : []),
+    ...(counts.audio  > 0 ? [{ id: "audio" as const, label: `Audio (${counts.audio})`  }] : []),
   ];
 
   return (
