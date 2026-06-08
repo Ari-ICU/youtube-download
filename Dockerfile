@@ -52,7 +52,7 @@ RUN ffmpeg -version 2>&1 | head -1 \
 
 # Non-root user for security
 RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
+    && useradd --system --create-home --uid 1001 --gid nodejs nextjs
 
 # Copy standalone build output
 COPY --from=builder /app/public                          ./public

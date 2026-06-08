@@ -44,7 +44,7 @@ export default function PlaylistDownloader() {
   const [controlsOpen, setControlsOpen] = useState(false);
 
   // Per-video format preview: videoId → formats (null = loading)
-  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewId] = useState<string | null>(null);
   const [previewFormats, setPreviewFormats] = useState<Record<string, VideoFormat[] | "loading" | "error">>({});
   // Video modal state
   const [modalVideo, setModalVideo] = useState<PlaylistVideo | null>(null);
