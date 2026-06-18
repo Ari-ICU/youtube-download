@@ -9,14 +9,38 @@ interface NavbarProps {
   setPlatform: (platform: "youtube" | "wetv" | "instagram") => void;
 }
 
+const platforms = [
+  {
+    id: "youtube" as const,
+    label: "YouTube",
+    icon: Play,
+    activeClass:
+      "bg-red-600/20 text-red-400 border border-red-500/20 shadow-[0_0_15px_rgba(220,38,38,0.15)]",
+  },
+  {
+    id: "wetv" as const,
+    label: "WeTV",
+    icon: Tv,
+    activeClass:
+      "bg-violet-600/20 text-violet-400 border border-violet-500/20 shadow-[0_0_15px_rgba(139,92,246,0.15)]",
+  },
+  {
+    id: "instagram" as const,
+    label: "Instagram",
+    icon: Camera,
+    activeClass:
+      "bg-pink-600/20 text-pink-400 border border-pink-500/20 shadow-[0_0_15px_rgba(219,39,119,0.15)]",
+  },
+];
+
 export default function Navbar({ platform, setPlatform }: NavbarProps) {
   return (
-    <nav className="sticky top-0 z-50 w-full backdrop-blur-md bg-zinc-950/40 border-b border-white/5 px-4 py-3 sm:px-6">
-      <div className="max-w-5xl mx-auto flex items-center justify-between">
-        
+    <nav className="sticky top-0 z-50 w-full backdrop-blur-md bg-zinc-950/40 border-b border-white/5 px-3 py-2.5 sm:px-6 sm:py-3">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+
         {/* Brand/Logo */}
-        <div className="flex items-center gap-2.5 cursor-pointer group">
-          <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 shadow-lg group-hover:border-violet-500/50 transition-colors duration-300">
+        <div className="flex items-center gap-2 cursor-pointer group shrink-0">
+          <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden border border-zinc-800 shadow-lg group-hover:border-violet-500/50 transition-colors duration-300">
             <Image
               src="/logo.png"
               alt="Anivora Logo"
@@ -25,51 +49,33 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
               className="object-cover"
             />
           </div>
-          <span className="text-sm sm:text-base font-black tracking-wider bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent group-hover:from-violet-300 group-hover:to-white transition-all duration-300">
+          <span className="hidden xs:block text-sm sm:text-base font-black tracking-wider bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent group-hover:from-violet-300 group-hover:to-white transition-all duration-300">
             ANIVORA
           </span>
         </div>
 
         {/* Platform Selector Buttons */}
-        <div className="flex items-center gap-1.5 bg-zinc-950/80 p-0.5 rounded-xl border border-white/5">
-          {/* YouTube button */}
-          <button
-            onClick={() => setPlatform("youtube")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
-              platform === "youtube"
-                ? "bg-red-600/20 text-red-400 border border-red-500/20 shadow-[0_0_15px_rgba(220,38,38,0.15)]"
-                : "text-zinc-500 hover:text-zinc-300 border border-transparent"
-            }`}
-          >
-            <Play className="w-3.5 h-3.5 shrink-0" />
-            <span>YouTube</span>
-          </button>
-
-          {/* WeTV button */}
-          <button
-            onClick={() => setPlatform("wetv")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
-              platform === "wetv"
-                ? "bg-violet-600/20 text-violet-400 border border-violet-500/20 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
-                : "text-zinc-500 hover:text-zinc-300 border border-transparent"
-            }`}
-          >
-            <Tv className="w-3.5 h-3.5 shrink-0" />
-            <span>WeTV</span>
-          </button>
-
-          {/* Instagram button */}
-          <button
-            onClick={() => setPlatform("instagram")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
-              platform === "instagram"
-                ? "bg-pink-600/20 text-pink-400 border border-pink-500/20 shadow-[0_0_15px_rgba(219,39,119,0.15)]"
-                : "text-zinc-500 hover:text-zinc-300 border border-transparent"
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5 shrink-0" />
-            <span>Instagram</span>
-          </button>
+        <div className="flex items-center gap-1 bg-zinc-950/80 p-0.5 rounded-xl border border-white/5">
+          {platforms.map(({ id, label, icon: Icon, activeClass }) => (
+            <motion.button
+              key={id}
+              onClick={() => setPlatform(id)}
+              whileTap={{ scale: 0.94 }}
+              className={`relative flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
+                platform === id
+                  ? activeClass
+                  : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              {/* Label: hidden on very small screens, visible on sm+ */}
+              <span className="hidden sm:inline">{label}</span>
+              {/* Short label for xs screens */}
+              <span className="inline sm:hidden">
+                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : "IG"}
+              </span>
+            </motion.button>
+          ))}
         </div>
 
       </div>

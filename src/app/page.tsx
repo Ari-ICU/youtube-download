@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import Navbar from "@/components/Navbar";
@@ -14,8 +14,31 @@ import InstagramDownloader from "@/components/InstagramDownloader";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
-  const [platform, setPlatform] = useState<"youtube" | "wetv" | "instagram">("youtube");
-  const [activeTab, setActiveTab] = useState<ActiveTab>("single");
+  // Start with defaults so SSR and client initial render match (no hydration mismatch)
+  const [platform, setPlatformState] = useState<"youtube" | "wetv" | "instagram">("youtube");
+  const [activeTab, setActiveTabState] = useState<ActiveTab>("single");
+
+  // After mount, restore the last-used tab from localStorage
+  useEffect(() => {
+    const savedPlatform = localStorage.getItem("anivora-platform");
+    if (savedPlatform === "youtube" || savedPlatform === "wetv" || savedPlatform === "instagram") {
+      setPlatformState(savedPlatform);
+    }
+    const savedTab = localStorage.getItem("anivora-active-tab");
+    if (savedTab === "single" || savedTab === "playlist") {
+      setActiveTabState(savedTab);
+    }
+  }, []);
+
+  const setPlatform = (p: "youtube" | "wetv" | "instagram") => {
+    localStorage.setItem("anivora-platform", p);
+    setPlatformState(p);
+  };
+
+  const setActiveTab = (tab: ActiveTab) => {
+    localStorage.setItem("anivora-active-tab", tab);
+    setActiveTabState(tab);
+  };
 
   return (
     <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center">

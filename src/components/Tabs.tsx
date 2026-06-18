@@ -35,7 +35,7 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
 
   return (
     <div className="flex justify-center mb-6 sm:mb-8 px-1">
-      <div className="flex w-full max-w-xs sm:max-w-sm bg-zinc-950/80 border border-white/5 p-1 rounded-2xl backdrop-blur-xl">
+      <div className="flex w-full max-w-xs sm:max-w-md bg-zinc-950/80 border border-white/5 p-1 rounded-2xl backdrop-blur-xl">
         {tabs.map(({ id, label, shortLabel, Icon }) => (
           <button
             key={id}
