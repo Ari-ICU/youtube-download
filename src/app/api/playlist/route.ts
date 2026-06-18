@@ -137,7 +137,24 @@ export async function GET(request: Request) {
                   const id = node.shortcode ?? node.id;
                   const title = node.edge_media_to_caption?.edges[0]?.node?.text ?? `Instagram Video ${index + 1}`;
                   const thumb = node.display_url ?? playlistThumb;
-                  const duration = Math.round(node.video_duration ?? 0);
+                  
+                  let duration = 0;
+                  if (node.video_duration) {
+                    duration = Math.round(node.video_duration);
+                  } else if (node.video_url) {
+                    try {
+                      const efgMatch = node.video_url.match(/[&?]efg=([^&]+)/);
+                      if (efgMatch) {
+                        const decoded = Buffer.from(decodeURIComponent(efgMatch[1]), "base64").toString("utf-8");
+                        const parsed = JSON.parse(decoded);
+                        if (parsed && typeof parsed.duration_s === "number") {
+                          duration = Math.round(parsed.duration_s);
+                        }
+                      }
+                    } catch (e) {
+                      // ignore
+                    }
+                  }
 
                   return {
                     id,
