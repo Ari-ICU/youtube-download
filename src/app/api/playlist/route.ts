@@ -90,49 +90,50 @@ export async function GET(request: Request) {
 
     const info = JSON.parse(stdout);
 
-    const entries: {
-      id: string;
-      title?: string;
-      url?: string;
-      thumbnail?: string;
-      thumbnails?: { url: string; width?: number }[];
-      duration?: number;
-      duration_string?: string;
-      uploader?: string;
-      channel?: string;
-    }[] = info.entries ?? [];
+    const isWeTvUrl = decodedUrl.includes("wetv.vip");
+
+    const entries: any[] = info.entries ?? [];
+
+    const playlistThumb =
+      info.thumbnail ??
+      (entries[0]?.thumbnails ?? []).sort((a: { width?: number }, b: { width?: number }) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
+      entries[0]?.thumbnail ??
+      "";
 
     const videos = entries
-      .filter((e) => !!e.id)
       .map((e, index) => {
+        const id = e.id ?? e.url?.split("/").pop() ?? `ep-${index + 1}`;
         const thumbs = e.thumbnails ?? [];
         const thumb =
-          thumbs.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
+          thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
           e.thumbnail ??
-          `https://img.youtube.com/vi/${e.id}/mqdefault.jpg`;
+          playlistThumb ??
+          (isWeTvUrl ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
+
+        const videoTitle = e.title ?? (isWeTvUrl ? `Episode ${index + 1}` : `Video ${index + 1}`);
+        const defaultUrl = isWeTvUrl
+          ? `https://wetv.vip/en/play/${info.id}/${id}`
+          : `https://www.youtube.com/watch?v=${id}`;
+        const videoUrl = e.url ?? defaultUrl;
 
         return {
-          id: e.id,
-          title: e.title ?? `Video ${index + 1}`,
+          id,
+          title: videoTitle,
           thumbnail: thumb,
           duration: Math.round(e.duration ?? 0),
           durationText: e.duration_string ?? "",
-          author: e.uploader ?? e.channel ?? "",
-          url: `https://www.youtube.com/watch?v=${e.id}`,
+          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : ""),
+          url: videoUrl,
           index,
         };
       });
 
-    const playlistThumb =
-      videos[0]?.thumbnail ??
-      `https://img.youtube.com/vi/${entries[0]?.id ?? ""}/mqdefault.jpg`;
-
     const playlist = {
       id: info.id ?? "",
-      title: info.title ?? "Untitled Playlist",
-      author: info.uploader ?? info.channel ?? info.uploader_id ?? "Unknown",
+      title: info.title ?? (isWeTvUrl ? "WeTV Series" : "Untitled Playlist"),
+      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : "Unknown"),
       videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
-      thumbnail: playlistThumb,
+      thumbnail: playlistThumb || (videos[0]?.thumbnail ?? ""),
       videos,
     };
 

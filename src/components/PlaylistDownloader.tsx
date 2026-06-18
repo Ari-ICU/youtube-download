@@ -27,7 +27,11 @@ const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "audio", label: "Audio Only",     description: "Best M4A track",         icon: <Music    className="w-3.5 h-3.5 text-brand-pink"   /> },
 ];
 
-export default function PlaylistDownloader() {
+interface PlaylistDownloaderProps {
+  platform?: "youtube" | "wetv";
+}
+
+export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDownloaderProps) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [playlistData, setPlaylistData] = useState<PlaylistDetails | null>(null);
@@ -75,7 +79,20 @@ export default function PlaylistDownloader() {
   };
 
   const handleAnalyze = async () => {
-    if (!url.trim()) return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    if (platform === "wetv" && !trimmed.includes("wetv.vip")) {
+      setError("Please enter a valid WeTV series URL (e.g., https://wetv.vip/en/play/...)");
+      setPlaylistData(null);
+      return;
+    }
+    if (platform === "youtube" && (trimmed.includes("wetv.vip") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
+      setError("Please enter a valid YouTube playlist URL.");
+      setPlaylistData(null);
+      return;
+    }
+
     setIsAnalyzing(true);
     setError(null);
     setPlaylistData(null);
@@ -85,14 +102,20 @@ export default function PlaylistDownloader() {
     setQuantityLimit("");
     setControlsOpen(false);
     try {
-      const res = await fetch(`/api/playlist?url=${encodeURIComponent(url.trim())}`);
+      const res = await fetch(`/api/playlist?url=${encodeURIComponent(trimmed)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze playlist URL");
       setPlaylistData(json.playlist);
       setSelectedVideos(new Set<string>(json.playlist.videos.map((v: PlaylistVideo) => v.id)));
       setQuantityLimit(json.playlist.videos.length.toString());
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to parse playlist. Make sure it is public.");
+      setError(
+        err instanceof Error 
+          ? err.message 
+          : platform === "wetv" 
+          ? "Failed to parse WeTV series. Check the URL and try again." 
+          : "Failed to parse playlist. Make sure it is public."
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -162,8 +185,9 @@ export default function PlaylistDownloader() {
     const height = format?.height ?? 0;
     const size = format?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
     setSingleDownloadTitle(video.title);
+    const isWeTv = platform === "wetv";
     import("@/utils/downloader").then(({ executeDownload }) => {
-      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, needsMerge, isAudio);
+      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, isWeTv ? true : needsMerge, isAudio);
     });
   };
 
@@ -216,7 +240,8 @@ export default function PlaylistDownloader() {
           const info = await infoRes.json();
           const formats = info.formats as VideoFormat[];
           const target = getTargetFormat(formats, qualityPreference);
-          chosenItag = target.itag; needsMerge = target.merge;
+          chosenItag = target.itag;
+          needsMerge = platform === "wetv" ? true : target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize = chosenFormat?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, chosenFormat?.height ?? 0, qualityPreference === "audio") : undefined);
@@ -289,11 +314,12 @@ export default function PlaylistDownloader() {
     return null;
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="w-full flex flex-col items-center">
       <UrlInput value={url} onChange={setUrl} onSubmit={handleAnalyze}
-        placeholder="Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"
+        placeholder={platform === "wetv"
+          ? "Paste WeTV Series URL (e.g. https://wetv.vip/en/play/…)"
+          : "Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"}
         isLoading={isAnalyzing} submitLabel="Extract" />
       {error && <ErrorBanner title="Failed to Load Playlist" message={error} />}
 
@@ -327,7 +353,7 @@ export default function PlaylistDownloader() {
             videoId:   modalVideo.id,
             title:     modalVideo.title,
             author:    modalVideo.author,
-            authorUrl: `https://www.youtube.com/channel/${modalVideo.author}`,
+            authorUrl: platform === "wetv" ? modalVideo.url : `https://www.youtube.com/channel/${modalVideo.author}`,
             thumbnail: modalVideo.thumbnail,
             duration:  modalVideo.duration,
             views:     0,

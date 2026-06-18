@@ -47,15 +47,13 @@ export default function Home() {
       <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between py-8 sm:py-12 px-4 sm:px-6 md:px-8">
         <Header platform={platform} />
         
-        {platform === "youtube" && (
-          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
-        )}
+        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} platform={platform} />
 
         <main className="flex-1 w-full">
           <AnimatePresence mode="wait">
             {platform === "youtube" && activeTab === "single" && (
               <motion.div
-                key="single-tab"
+                key="youtube-single-tab"
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
@@ -68,20 +66,20 @@ export default function Home() {
 
             {platform === "youtube" && activeTab === "playlist" && (
               <motion.div
-                key="playlist-tab"
+                key="youtube-playlist-tab"
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader />
+                <PlaylistDownloader platform="youtube" />
               </motion.div>
             )}
 
-            {platform === "wetv" && (
+            {platform === "wetv" && activeTab === "single" && (
               <motion.div
-                key="wetv-tab"
+                key="wetv-single-tab"
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
@@ -89,6 +87,19 @@ export default function Home() {
                 className="w-full"
               >
                 <WeTVDownloader />
+              </motion.div>
+            )}
+
+            {platform === "wetv" && activeTab === "playlist" && (
+              <motion.div
+                key="wetv-playlist-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <PlaylistDownloader platform="wetv" />
               </motion.div>
             )}
           </AnimatePresence>

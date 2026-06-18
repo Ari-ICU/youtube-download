@@ -6,6 +6,7 @@ import type { ActiveTab } from "@/types";
 interface TabsProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+  platform: "youtube" | "wetv";
 }
 
 const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.ElementType }[] = [
@@ -13,11 +14,22 @@ const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.Elem
   { id: "playlist", label: "Playlist Extractor",  shortLabel: "Playlist", Icon: List  },
 ];
 
-export default function Tabs({ activeTab, setActiveTab }: TabsProps) {
+export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
+  const tabs = TABS.map((tab) => {
+    if (platform === "wetv") {
+      return {
+        ...tab,
+        label: tab.id === "single" ? "Episode Downloader" : "Series Extractor",
+        shortLabel: tab.id === "single" ? "Episode" : "Series",
+      };
+    }
+    return tab;
+  });
+
   return (
     <div className="flex justify-center mb-6 sm:mb-8 px-1">
       <div className="flex w-full max-w-xs sm:max-w-sm bg-zinc-950/80 border border-white/5 p-1 rounded-2xl backdrop-blur-xl">
-        {TABS.map(({ id, label, shortLabel, Icon }) => (
+        {tabs.map(({ id, label, shortLabel, Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
@@ -28,7 +40,6 @@ export default function Tabs({ activeTab, setActiveTab }: TabsProps) {
             }`}
           >
             <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-            {/* Short label on very small screens, full label on sm+ */}
             <span className="sm:hidden">{shortLabel}</span>
             <span className="hidden sm:inline">{label}</span>
           </button>
