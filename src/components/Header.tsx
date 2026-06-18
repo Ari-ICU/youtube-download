@@ -3,7 +3,11 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 
-export default function Header() {
+interface HeaderProps {
+  platform: "youtube" | "wetv";
+}
+
+export default function Header({ platform }: HeaderProps) {
   return (
     <header className="text-center mb-8 sm:mb-10 flex flex-col items-center">
       <motion.div
@@ -38,8 +42,9 @@ export default function Header() {
         transition={{ delay: 0.3, duration: 0.8 }}
         className="text-zinc-400 text-xs sm:text-sm md:text-base max-w-xs sm:max-w-md px-2 text-center"
       >
-        High-speed YouTube video and playlist downloader.
-        Choose a format and save directly to your device.
+        {platform === "youtube"
+          ? "High-speed YouTube video and playlist downloader. Choose a format and save directly to your device."
+          : "Download high-quality WeTV dramas, anime, and shows instantly."}
       </motion.p>
     </header>
   );

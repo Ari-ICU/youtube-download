@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
+import Navbar from "@/components/Navbar";
 import Header from "@/components/Header";
 import Tabs from "@/components/Tabs";
 import Footer from "@/components/Footer";
@@ -12,10 +13,13 @@ import WeTVDownloader from "@/components/WeTVDownloader";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
+  const [platform, setPlatform] = useState<"youtube" | "wetv">("youtube");
   const [activeTab, setActiveTab] = useState<ActiveTab>("single");
 
   return (
-    <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center py-8 sm:py-12 px-4 sm:px-6 md:px-8">
+    <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center">
+      <Navbar platform={platform} setPlatform={setPlatform} />
+
       {/* JSON-LD */}
       <script
         type="application/ld+json"
@@ -27,7 +31,7 @@ export default function Home() {
             url: "https://vibetube.app",
             logo: "https://vibetube.app/logo.png",
             description:
-              "Download high-quality YouTube videos, playlists, and MP3 audio instantly.",
+              "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly.",
             applicationCategory: "MultimediaApplication",
             operatingSystem: "All",
             offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -40,13 +44,16 @@ export default function Home() {
       <div className="bg-blob z-0" style={{ bottom: "-15%", right: "-10%", width: "60%", height: "60%", animationDelay: "1.5s" }} />
 
       {/* Main container — full width on mobile, capped on desktop */}
-      <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between">
-        <Header />
-        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
+      <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between py-8 sm:py-12 px-4 sm:px-6 md:px-8">
+        <Header platform={platform} />
+        
+        {platform === "youtube" && (
+          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
+        )}
 
         <main className="flex-1 w-full">
           <AnimatePresence mode="wait">
-            {activeTab === "single" && (
+            {platform === "youtube" && activeTab === "single" && (
               <motion.div
                 key="single-tab"
                 initial={{ opacity: 0, y: 15 }}
@@ -59,7 +66,7 @@ export default function Home() {
               </motion.div>
             )}
 
-            {activeTab === "playlist" && (
+            {platform === "youtube" && activeTab === "playlist" && (
               <motion.div
                 key="playlist-tab"
                 initial={{ opacity: 0, y: 15 }}
@@ -72,7 +79,7 @@ export default function Home() {
               </motion.div>
             )}
 
-            {activeTab === "wetv" && (
+            {platform === "wetv" && (
               <motion.div
                 key="wetv-tab"
                 initial={{ opacity: 0, y: 15 }}
