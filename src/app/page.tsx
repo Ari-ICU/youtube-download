@@ -8,6 +8,7 @@ import Tabs from "@/components/Tabs";
 import Footer from "@/components/Footer";
 import SingleDownloader from "@/components/SingleDownloader";
 import PlaylistDownloader from "@/components/PlaylistDownloader";
+import WeTVDownloader from "@/components/WeTVDownloader";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
@@ -68,6 +69,19 @@ export default function Home() {
                 className="w-full"
               >
                 <PlaylistDownloader />
+              </motion.div>
+            )}
+
+            {activeTab === "wetv" && (
+              <motion.div
+                key="wetv-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <WeTVDownloader />
               </motion.div>
             )}
           </AnimatePresence>

@@ -72,7 +72,7 @@ export interface DownloadState {
 
 // ─── Tab ──────────────────────────────────────────────────────────────────────
 
-export type ActiveTab = "single" | "playlist";
+export type ActiveTab = "single" | "playlist" | "wetv";
 
 // ─── Quality Preference ───────────────────────────────────────────────────────
 

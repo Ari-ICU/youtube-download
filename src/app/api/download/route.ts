@@ -23,6 +23,8 @@ const ALLOWED_HOSTS = [
   "youtu.be",
   "m.youtube.com",
   "music.youtube.com",
+  "wetv.vip",
+  "www.wetv.vip",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -119,16 +121,14 @@ export async function GET(request: Request) {
       tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
       const outPath = join(tmpDir, `output.mp4`);
 
-      // Format selector: try the exact itag first, then fall back to
-      // best video at the same height, then just best available.
-      // This handles cases where a specific format ID disappears between
-      // the /api/info call and the actual download.
-      const formatSelector =
-        `${formatId}+bestaudio[ext=m4a]/` +
-        `${formatId}+bestaudio/` +
-        `bestvideo+bestaudio[ext=m4a]/` +
-        `bestvideo+bestaudio/` +
-        `best`;
+      const isWeTvUrl = decodedUrl.includes("wetv.vip");
+      const formatSelector = isWeTvUrl
+        ? formatId
+        : `${formatId}+bestaudio[ext=m4a]/` +
+          `${formatId}+bestaudio/` +
+          `bestvideo+bestaudio[ext=m4a]/` +
+          `bestvideo+bestaudio/` +
+          `best`;
 
       await new Promise<void>((resolve, reject) => {
         ytdlpProcess = spawn(YTDLP, [

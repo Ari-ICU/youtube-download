@@ -23,12 +23,13 @@ const ALLOWED_HOSTS = [
   "youtu.be",
   "m.youtube.com",
   "music.youtube.com",
+  "wetv.vip",
+  "www.wetv.vip",
 ];
 
 function isAllowedUrl(raw: string): boolean {
   try {
     const parsed = new URL(raw);
-    // Only allow https
     if (parsed.protocol !== "https:") return false;
     return ALLOWED_HOSTS.some(
       (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
@@ -157,24 +158,28 @@ export async function GET(request: Request) {
       vbr: number | null;
     };
 
+    const isWeTvUrl = decodedUrl.includes("wetv.vip");
+
     const mapped: MappedFormat[] = rawFormats
       .filter((f) => {
-        // Skip HLS manifests, storyboards, and mhtml thumbnails
         const proto = f.protocol ?? "";
-        if (proto.includes("m3u8") || proto === "mhtml") return false;
+        if (proto === "mhtml") return false;
+        if (proto.includes("m3u8") && !isWeTvUrl) return false;
         const hasVideo = f.vcodec && f.vcodec !== "none";
         const hasAudio = f.acodec && f.acodec !== "none";
-        return !!(hasVideo || hasAudio);
+        return !!(hasVideo || hasAudio || isWeTvUrl);
       })
       .map((f) => {
-        const hasVideo = !!(f.vcodec && f.vcodec !== "none");
-        const hasAudio = !!(f.acodec && f.acodec !== "none");
+        const hasVideo = isWeTvUrl ? true : !!(f.vcodec && f.vcodec !== "none");
+        const hasAudio = isWeTvUrl ? true : !!(f.acodec && f.acodec !== "none");
         const height = f.height ?? 0;
         const vc = shortCodec(f.vcodec);
         const ac = shortCodec(f.acodec);
         const vbr = f.vbr ?? (hasVideo && !hasAudio ? (f.tbr ?? null) : null);
 
-        const qualityLabel = hasVideo
+        const qualityLabel = (isWeTvUrl && f.format_note)
+          ? f.format_note
+          : hasVideo
           ? heightToLabel(height)
           : f.abr
           ? `${Math.round(f.abr)}kbps`

@@ -1,6 +1,6 @@
 "use client";
 
-import { Video, List } from "lucide-react";
+import { Video, List, Tv } from "lucide-react";
 import type { ActiveTab } from "@/types";
 
 interface TabsProps {
@@ -11,12 +11,13 @@ interface TabsProps {
 const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.ElementType }[] = [
   { id: "single",   label: "Single Downloader",  shortLabel: "Single",   Icon: Video },
   { id: "playlist", label: "Playlist Extractor",  shortLabel: "Playlist", Icon: List  },
+  { id: "wetv",     label: "WeTV Downloader",    shortLabel: "WeTV",     Icon: Tv    },
 ];
 
 export default function Tabs({ activeTab, setActiveTab }: TabsProps) {
   return (
     <div className="flex justify-center mb-6 sm:mb-8 px-1">
-      <div className="flex w-full max-w-xs sm:max-w-sm bg-zinc-950/80 border border-white/5 p-1 rounded-2xl backdrop-blur-xl">
+      <div className="flex w-full max-w-sm sm:max-w-md bg-zinc-950/80 border border-white/5 p-1 rounded-2xl backdrop-blur-xl">
         {TABS.map(({ id, label, shortLabel, Icon }) => (
           <button
             key={id}

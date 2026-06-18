@@ -22,6 +22,7 @@ const YTDLP_BASE_ARGS = [
 const ALLOWED_HOSTS = [
   "youtube.com", "www.youtube.com", "youtu.be",
   "m.youtube.com", "music.youtube.com",
+  "wetv.vip", "www.wetv.vip",
 ];
 
 function isAllowedUrl(raw: string): boolean {

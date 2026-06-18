@@ -20,6 +20,8 @@ const ALLOWED_HOSTS = [
   "youtu.be",
   "m.youtube.com",
   "music.youtube.com",
+  "wetv.vip",
+  "www.wetv.vip",
 ];
 
 function isAllowedUrl(raw: string): boolean {

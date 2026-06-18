@@ -61,6 +61,7 @@ export function consumeToken(token: string): FileEntry | undefined {
 const ALLOWED_HOSTS = [
   "youtube.com", "www.youtube.com", "youtu.be",
   "m.youtube.com", "music.youtube.com",
+  "wetv.vip", "www.wetv.vip",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -201,7 +202,9 @@ export async function GET(request: Request) {
         // Build yt-dlp args
         const ytArgs: string[] = [...YTDLP_BASE_ARGS, "--no-playlist", "--newline", "--progress"];
 
-        if (merge) {
+        const isWeTvUrl = decodedUrl.includes("wetv.vip");
+
+        if (merge && !isWeTvUrl) {
           const formatSelector =
             `${formatId}+bestaudio[ext=m4a]/` +
             `${formatId}+bestaudio/` +
