@@ -214,8 +214,23 @@ export async function GET(request: Request) {
         const ytArgs: string[] = [...getYtDlpArgs(), "--no-playlist", "--newline", "--progress"];
 
         const isWeTvUrl = decodedUrl.includes("wetv.vip");
+        const isInstagramUrl = decodedUrl.includes("instagram.com");
 
-        if (merge && !isWeTvUrl) {
+        if (isInstagramUrl && !isAudioOnly) {
+          // Instagram: always merge + recode to H.264/AAC for QuickTime compatibility
+          const formatSelector =
+            `${formatId}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
+            `${formatId}+bestaudio[ext=m4a]/` +
+            `bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
+            `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
+            `bestvideo+bestaudio/best[ext=mp4]/best`;
+          ytArgs.push(
+            "-f", formatSelector,
+            "--merge-output-format", "mp4",
+            "--recode-video", "mp4",
+            "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
+          );
+        } else if (merge && !isWeTvUrl) {
           const formatSelector =
             `${formatId}+bestaudio[ext=m4a]/` +
             `${formatId}+bestaudio/` +

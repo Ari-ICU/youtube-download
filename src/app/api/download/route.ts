@@ -133,24 +133,43 @@ export async function GET(request: Request) {
       const outPath = join(tmpDir, `output.mp4`);
 
       const isWeTvUrl = decodedUrl.includes("wetv.vip");
-      const formatSelector = isWeTvUrl
-        ? formatId
-        : `${formatId}+bestaudio[ext=m4a]/` +
+      const isInstagramUrl = decodedUrl.includes("instagram.com");
+
+      let formatSelector: string;
+      if (isWeTvUrl) {
+        formatSelector = formatId;
+      } else if (isInstagramUrl) {
+        // Instagram: prefer H.264 MP4 + M4A audio — QuickTime compatible
+        formatSelector =
+          `${formatId}[ext=mp4]+bestaudio[ext=m4a]/` +
+          `${formatId}+bestaudio[ext=m4a]/` +
+          `bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
+          `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
+          `bestvideo+bestaudio[ext=m4a]/` +
+          `bestvideo+bestaudio/best[ext=mp4]/best`;
+      } else {
+        formatSelector =
+          `${formatId}+bestaudio[ext=m4a]/` +
           `${formatId}+bestaudio/` +
           `bestvideo+bestaudio[ext=m4a]/` +
           `bestvideo+bestaudio/` +
           `best`;
+      }
+
+      const ytdlpArgs = [
+        ...getYtDlpArgs(),
+        "--no-playlist",
+        "-f", formatSelector,
+        "--merge-output-format", "mp4",
+        // For Instagram, recode to H.264 to guarantee QuickTime compatibility
+        ...(isInstagramUrl ? ["--recode-video", "mp4", "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart"] : []),
+        "-o", outPath,
+        "--no-part",
+        decodedUrl,
+      ];
 
       await new Promise<void>((resolve, reject) => {
-        ytdlpProcess = spawn(YTDLP, [
-          ...getYtDlpArgs(),
-          "--no-playlist",
-          "-f", formatSelector,
-          "--merge-output-format", "mp4",
-          "-o", outPath,
-          "--no-part",
-          decodedUrl,
-        ]);
+        ytdlpProcess = spawn(YTDLP, ytdlpArgs);
 
         const stderrChunks: Buffer[] = [];
         ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) => stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
@@ -194,6 +213,81 @@ export async function GET(request: Request) {
       });
 
       return new Response(readableStream, { headers });
+    }
+
+    // ── Direct pipe path (combined or audio-only streams) ────────────────────
+    // For Instagram URLs: use merge path via temp file to ensure H.264/AAC MP4
+    // that is compatible with QuickTime Player on Mac.
+    const isInstagramDirect = decodedUrl.includes("instagram.com");
+    if (isInstagramDirect && !isAudioOnly) {
+      // Redirect to merge path — write to temp dir with recode
+      tmpDir = await mkdtemp(join(tmpdir(), "ytdl-ig-"));
+      const outPath = join(tmpDir, `output.mp4`);
+      const formatSelector =
+        `${formatId}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
+        `${formatId}+bestaudio[ext=m4a]/` +
+        `bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
+        `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
+        `bestvideo+bestaudio/best[ext=mp4]/best`;
+
+      await new Promise<void>((resolve, reject) => {
+        ytdlpProcess = spawn(YTDLP, [
+          ...getYtDlpArgs(),
+          "--no-playlist",
+          "-f", formatSelector,
+          "--merge-output-format", "mp4",
+          "--recode-video", "mp4",
+          "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
+          "-o", outPath,
+          "--no-part",
+          decodedUrl,
+        ]);
+
+        const stderrChunks2: Buffer[] = [];
+        ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) =>
+          stderrChunks2.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        );
+        ytdlpProcess.on("close", (code) => {
+          if (code === 0) resolve();
+          else {
+            const stderr = Buffer.concat(stderrChunks2).toString();
+            console.error(`yt-dlp Instagram recode exited with code ${code}:`, stderr);
+            reject(new Error(`yt-dlp exited with code ${code}`));
+          }
+        });
+        ytdlpProcess.on("error", reject);
+      });
+
+      const { size: igSize } = await stat(outPath);
+      const igFilename = `${sanitizedTitle}.mp4`;
+      const igHeaders = new Headers({
+        "Content-Type": "video/mp4",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(igFilename)}`,
+        "Content-Length": String(igSize),
+        "X-Accel-Buffering": "no",
+        "Cache-Control": "no-cache",
+      });
+      const igStream = createReadStream(outPath);
+      const igReadable = new ReadableStream({
+        start(controller) {
+          igStream.on("data", (chunk: Buffer | string) =>
+            controller.enqueue(new Uint8Array(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+          );
+          igStream.on("end", () => {
+            controller.close();
+            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          });
+          igStream.on("error", (err) => {
+            controller.error(err);
+            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+          });
+        },
+        cancel() {
+          igStream.destroy();
+          if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        },
+      });
+      return new Response(igReadable, { headers: igHeaders });
     }
 
     // ── Direct pipe path (combined or audio-only streams) ────────────────────
