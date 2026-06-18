@@ -172,28 +172,59 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
 
   const getTargetFormat = (formats: VideoFormat[], preference: QualityPreference): { itag: string; merge: boolean } => {
     const fallback = { itag: "18", merge: false };
+
     if (preference === "audio") {
-      const f = formats.find((f) => !f.hasVideo && f.hasAudio && f.container === "m4a") || formats.find((f) => !f.hasVideo && f.hasAudio);
+      // Audio-only: prefer M4A, then any audio track — no merge needed
+      const f = formats.find((f) => !f.hasVideo && f.hasAudio && f.container === "m4a")
+             || formats.find((f) => !f.hasVideo && f.hasAudio);
       return f ? { itag: f.itag, merge: false } : fallback;
     }
+
     if (preference === "4k") {
-      const f = formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 2160) || formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1440);
+      // 4K: video-only stream ≥2160p, fall back to ≥1440p — always needs audio merge
+      const f = formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 2160)
+             || formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1440);
       if (f) return { itag: f.itag, merge: true };
+      // No 4K stream found — try best HD video-only with merge
+      const hd = formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1080)
+              || formats.find((f) => f.hasVideo && !f.hasAudio);
+      if (hd) return { itag: hd.itag, merge: true };
+      // Last resort: combined stream (360p "18")
       const combined = formats.find((f) => f.hasVideo && f.hasAudio);
       return combined ? { itag: combined.itag, merge: false } : fallback;
     }
+
     if (preference === "high") {
-      const f = formats.find((f) => f.hasVideo && f.hasAudio && f.height >= 1080) || formats.find((f) => f.hasVideo && f.hasAudio && f.height >= 720) || formats.find((f) => f.hasVideo && f.hasAudio);
-      return f ? { itag: f.itag, merge: false } : fallback;
+      // High: prefer 1080p video-only (needs merge), fall back to 720p video-only, then combined
+      const videoOnly = formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1080)
+                     || formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 720)
+                     || formats.find((f) => f.hasVideo && !f.hasAudio);
+      if (videoOnly) return { itag: videoOnly.itag, merge: true };
+      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
+      return combined ? { itag: combined.itag, merge: false } : fallback;
     }
+
     if (preference === "medium") {
-      const f = formats.find((f) => f.hasVideo && f.hasAudio && f.height === 480) || formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 480) || formats.find((f) => f.hasVideo && f.hasAudio);
-      return f ? { itag: f.itag, merge: false } : fallback;
+      // Medium: prefer 480p video-only (needs merge), then any ≤480p video-only, then combined
+      const videoOnly = formats.find((f) => f.hasVideo && !f.hasAudio && f.height === 480)
+                     || formats.find((f) => f.hasVideo && !f.hasAudio && f.height <= 480 && f.height > 0)
+                     || formats.find((f) => f.hasVideo && !f.hasAudio);
+      if (videoOnly) return { itag: videoOnly.itag, merge: true };
+      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
+      return combined ? { itag: combined.itag, merge: false } : fallback;
     }
+
     if (preference === "low") {
-      const f = formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 360) || formats.find((f) => f.hasVideo && f.hasAudio);
-      return f ? { itag: f.itag, merge: false } : fallback;
+      // Low: try combined stream at ≤360p first (format "18"), then video-only with merge
+      const combined = formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 360)
+                    || formats.find((f) => f.hasVideo && f.hasAudio);
+      if (combined) return { itag: combined.itag, merge: false };
+      const videoOnly = formats.find((f) => f.hasVideo && !f.hasAudio && f.height <= 360 && f.height > 0)
+                     || formats.find((f) => f.hasVideo && !f.hasAudio);
+      if (videoOnly) return { itag: videoOnly.itag, merge: true };
+      return fallback;
     }
+
     return fallback;
   };
 

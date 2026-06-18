@@ -7,11 +7,15 @@ import { randomUUID } from "crypto";
 
 const YTDLP = "yt-dlp";
 
+// Player clients:
+// - web:         broad compatibility, standard streams up to 1080p
+// - android:     works for region-restricted & geo-blocked videos
+// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams
+// Note: --js-runtimes and --remote-components removed; they fetch JS solvers
+// from GitHub at runtime and break downloads when the network is unavailable.
 const YTDLP_BASE_ARGS = [
   "--extractor-args", "youtube:player_client=web,android,android_vr",
   "--no-warnings",
-  "--js-runtimes", "node",
-  "--remote-components", "ejs:github",
 ];
 
 function getYtDlpArgs(): string[] {
