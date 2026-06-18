@@ -6,7 +6,7 @@ import type { ActiveTab } from "@/types";
 interface TabsProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
-  platform: "youtube" | "wetv";
+  platform: "youtube" | "wetv" | "instagram";
 }
 
 const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.ElementType }[] = [
@@ -21,6 +21,13 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
         ...tab,
         label: tab.id === "single" ? "Episode Downloader" : "Series Extractor",
         shortLabel: tab.id === "single" ? "Episode" : "Series",
+      };
+    }
+    if (platform === "instagram") {
+      return {
+        ...tab,
+        label: tab.id === "single" ? "Single Video/Reel" : "Profile Extractor",
+        shortLabel: tab.id === "single" ? "Single" : "Profile",
       };
     }
     return tab;

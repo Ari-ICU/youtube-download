@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { mkdtemp, rm, stat } from "fs/promises";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { randomUUID } from "crypto";
@@ -12,6 +13,15 @@ const YTDLP_BASE_ARGS = [
   "--js-runtimes", "node",
   "--remote-components", "ejs:github",
 ];
+
+function getYtDlpArgs(): string[] {
+  const args = [...YTDLP_BASE_ARGS];
+  const cookiesPath = join(process.cwd(), "cookies.txt");
+  if (existsSync(cookiesPath)) {
+    args.push("--cookies", cookiesPath);
+  }
+  return args;
+}
 
 // ─── Token registry ───────────────────────────────────────────────────────────
 // Maps a short-lived token → { path, tmpDir } so /api/download/file can serve it.
@@ -62,6 +72,7 @@ const ALLOWED_HOSTS = [
   "youtube.com", "www.youtube.com", "youtu.be",
   "m.youtube.com", "music.youtube.com",
   "wetv.vip", "www.wetv.vip",
+  "instagram.com", "www.instagram.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -160,7 +171,7 @@ export async function GET(request: Request) {
   const decodedUrl = decodeURIComponent(url);
 
   if (!isAllowedUrl(decodedUrl)) {
-    return new Response("Only YouTube URLs are supported.", { status: 400 });
+    return new Response("Only YouTube, WeTV, and Instagram URLs are supported.", { status: 400 });
   }
 
   if (!FORMAT_ID_RE.test(formatId)) {
@@ -200,7 +211,7 @@ export async function GET(request: Request) {
         const outPath = resolve(join(tmpDir, `output.${ext}`));
 
         // Build yt-dlp args
-        const ytArgs: string[] = [...YTDLP_BASE_ARGS, "--no-playlist", "--newline", "--progress"];
+        const ytArgs: string[] = [...getYtDlpArgs(), "--no-playlist", "--newline", "--progress"];
 
         const isWeTvUrl = decodedUrl.includes("wetv.vip");
 

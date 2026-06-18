@@ -13,39 +13,40 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VibeTube | Premium YouTube Video & Playlist Downloader",
-  description: "Download high-quality YouTube videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+  title: "Anivora | Premium Video Downloader",
+  description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
   keywords: [
     "youtube downloader",
     "playlist downloader",
+    "wetv downloader",
     "convert youtube to mp3",
-    "vibetube",
+    "anivora",
     "download youtube video",
     "online video downloader",
-    "free youtube downloader",
+    "free video downloader",
     "download youtube playlist",
-    "fast youtube downloader",
+    "fast video downloader",
     "youtube to mp4",
     "hd video downloader"
   ],
-  authors: [{ name: "VibeTube Team" }],
-  creator: "VibeTube",
-  publisher: "VibeTube",
-  metadataBase: new URL("https://vibetube.app"),
+  authors: [{ name: "Anivora Team" }],
+  creator: "Anivora",
+  publisher: "Anivora",
+  metadataBase: new URL("https://anivora.app"),
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "VibeTube | Premium YouTube Video & Playlist Downloader",
-    description: "Download high-quality YouTube videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
-    url: "https://vibetube.app",
-    siteName: "VibeTube",
+    title: "Anivora | Premium Video Downloader",
+    description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+    url: "https://anivora.app",
+    siteName: "Anivora",
     images: [
       {
         url: "/logo.png",
         width: 512,
         height: 512,
-        alt: "VibeTube Premium Downloader Logo",
+        alt: "Anivora Premium Downloader Logo",
       },
     ],
     locale: "en_US",
@@ -53,10 +54,10 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "VibeTube | Premium YouTube Video & Playlist Downloader",
-    description: "Download high-quality YouTube videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+    title: "Anivora | Premium Video Downloader",
+    description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
     images: ["/logo.png"],
-    creator: "@vibetube",
+    creator: "@anivora",
   },
   icons: {
     icon: "/logo.png",

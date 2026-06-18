@@ -1,7 +1,7 @@
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { mkdtemp, rm, stat } from "fs/promises";
-import { createReadStream } from "fs";
+import { createReadStream, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -18,11 +18,21 @@ const YTDLP_BASE_ARGS = [
   "--remote-components", "ejs:github",
 ];
 
+function getYtDlpArgs(): string[] {
+  const args = [...YTDLP_BASE_ARGS];
+  const cookiesPath = join(process.cwd(), "cookies.txt");
+  if (existsSync(cookiesPath)) {
+    args.push("--cookies", cookiesPath);
+  }
+  return args;
+}
+
 // ─── Security: allowlist YouTube domains ─────────────────────────────────────
 const ALLOWED_HOSTS = [
   "youtube.com", "www.youtube.com", "youtu.be",
   "m.youtube.com", "music.youtube.com",
   "wetv.vip", "www.wetv.vip",
+  "instagram.com", "www.instagram.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -51,7 +61,7 @@ async function buildMergedClip(
 
   await new Promise<void>((resolve, reject) => {
     const args = [
-      ...YTDLP_BASE_ARGS,
+      ...getYtDlpArgs(),
       "--no-playlist",
       "-f", formatSelector,
       "--merge-output-format", "mp4",
@@ -121,7 +131,7 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(url);
 
     if (!isAllowedUrl(decodedUrl)) {
-      return Response.json({ error: "Only YouTube URLs are supported." }, { status: 400 });
+      return Response.json({ error: "Only YouTube, WeTV, and Instagram URLs are supported." }, { status: 400 });
     }
 
     if (!FORMAT_ID_RE.test(formatId)) {
@@ -165,7 +175,7 @@ export async function GET(request: Request) {
     // and CORS-blocked.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...YTDLP_BASE_ARGS, "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
+      [...getYtDlpArgs(), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
       { maxBuffer: 1 * 1024 * 1024, timeout: 15_000 }
     );
 

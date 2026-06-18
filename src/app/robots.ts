@@ -6,6 +6,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: '*',
       allow: '/',
     },
-    sitemap: 'https://vibetube.app/sitemap.xml',
+    sitemap: 'https://anivora.app/sitemap.xml',
   };
 }

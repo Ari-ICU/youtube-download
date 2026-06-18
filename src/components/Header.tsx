@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 
 interface HeaderProps {
-  platform: "youtube" | "wetv";
+  platform: "youtube" | "wetv" | "instagram";
 }
 
 export default function Header({ platform }: HeaderProps) {
@@ -18,7 +18,7 @@ export default function Header({ platform }: HeaderProps) {
       >
         <Image
           src="/logo.png"
-          alt="VibeTube Logo"
+          alt="Anivora Logo"
           fill
           priority
           sizes="(max-width: 640px) 64px, (max-width: 768px) 80px, 96px"
@@ -33,7 +33,7 @@ export default function Header({ platform }: HeaderProps) {
         transition={{ delay: 0.2, duration: 0.8 }}
         className="text-3xl sm:text-4xl md:text-6xl font-black bg-gradient-to-r from-white via-zinc-200 to-zinc-500 bg-clip-text text-transparent tracking-tight text-glow mb-3"
       >
-        VIBETUBE
+        ANIVORA
       </motion.h1>
 
       <motion.p
@@ -44,7 +44,9 @@ export default function Header({ platform }: HeaderProps) {
       >
         {platform === "youtube"
           ? "High-speed YouTube video and playlist downloader. Choose a format and save directly to your device."
-          : "Download high-quality WeTV dramas, anime, and shows instantly."}
+          : platform === "wetv"
+          ? "Download high-quality WeTV dramas, anime, and shows instantly."
+          : "Download high-quality Instagram reels, videos, and posts instantly."}
       </motion.p>
     </header>
   );

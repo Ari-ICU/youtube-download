@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { execFile } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 
 const YTDLP = "yt-dlp";
 
@@ -13,6 +15,15 @@ const YTDLP_BASE_ARGS = [
   "--remote-components", "ejs:github",
 ];
 
+function getYtDlpArgs(): string[] {
+  const args = [...YTDLP_BASE_ARGS];
+  const cookiesPath = join(process.cwd(), "cookies.txt");
+  if (existsSync(cookiesPath)) {
+    args.push("--cookies", cookiesPath);
+  }
+  return args;
+}
+
 // ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
 const ALLOWED_HOSTS = [
   "youtube.com",
@@ -22,6 +33,8 @@ const ALLOWED_HOSTS = [
   "music.youtube.com",
   "wetv.vip",
   "www.wetv.vip",
+  "instagram.com",
+  "www.instagram.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -76,13 +89,13 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return NextResponse.json(
-        { error: "Only YouTube URLs are supported." },
+        { error: "Only YouTube, WeTV, and Instagram URLs are supported." },
         { status: 400 }
       );
     }
 
     const stdout = await runYtDlp([
-      ...YTDLP_BASE_ARGS,
+      ...getYtDlpArgs(),
       "--flat-playlist",
       "--dump-single-json",
       decodedUrl,
@@ -91,6 +104,7 @@ export async function GET(request: Request) {
     const info = JSON.parse(stdout);
 
     const isWeTvUrl = decodedUrl.includes("wetv.vip");
+    const isInstagramUrl = decodedUrl.includes("instagram.com");
 
     const entries: any[] = info.entries ?? [];
 
@@ -108,11 +122,13 @@ export async function GET(request: Request) {
           thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
           e.thumbnail ??
           playlistThumb ??
-          (isWeTvUrl ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
+          ((isWeTvUrl || isInstagramUrl) ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
 
-        const videoTitle = e.title ?? (isWeTvUrl ? `Episode ${index + 1}` : `Video ${index + 1}`);
+        const videoTitle = e.title ?? (isWeTvUrl ? `Episode ${index + 1}` : isInstagramUrl ? `Instagram Video ${index + 1}` : `Video ${index + 1}`);
         const defaultUrl = isWeTvUrl
           ? `https://wetv.vip/en/play/${info.id}/${id}`
+          : isInstagramUrl
+          ? `https://www.instagram.com/p/${id}/`
           : `https://www.youtube.com/watch?v=${id}`;
         const videoUrl = e.url ?? defaultUrl;
 
@@ -122,7 +138,7 @@ export async function GET(request: Request) {
           thumbnail: thumb,
           duration: Math.round(e.duration ?? 0),
           durationText: e.duration_string ?? "",
-          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : ""),
+          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : isInstagramUrl ? (info.title ?? "Instagram") : ""),
           url: videoUrl,
           index,
         };
@@ -130,8 +146,8 @@ export async function GET(request: Request) {
 
     const playlist = {
       id: info.id ?? "",
-      title: info.title ?? (isWeTvUrl ? "WeTV Series" : "Untitled Playlist"),
-      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : "Unknown"),
+      title: info.title ?? (isWeTvUrl ? "WeTV Series" : isInstagramUrl ? `${info.id ?? "Instagram"} Profile` : "Untitled Playlist"),
+      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : isInstagramUrl ? (info.id ?? "Instagram") : "Unknown"),
       videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
       thumbnail: playlistThumb || (videos[0]?.thumbnail ?? ""),
       videos,
@@ -139,11 +155,14 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ playlist });
   } catch (error: unknown) {
-    const msg =
-      error instanceof Error
-        ? error.message
-        : "Failed to retrieve playlist information.";
-    console.error("Error in /api/playlist:", msg);
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    let msg = rawMsg;
+    if (rawMsg.includes("instagram") && (rawMsg.includes("Unable to extract data") || rawMsg.includes("login") || rawMsg.includes("cookies"))) {
+      msg = "Instagram restricts scanning profile pages without account cookies. Please download individual videos/reels directly using the Single Downloader, or place a cookies.txt file in the project root to authenticate.";
+    } else if (rawMsg.includes("instagram")) {
+      msg = "Failed to retrieve Instagram profile. Try downloading the reel directly in the Single tab using its specific URL.";
+    }
+    console.error("Error in /api/playlist:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -28,7 +28,7 @@ const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
 ];
 
 interface PlaylistDownloaderProps {
-  platform?: "youtube" | "wetv";
+  platform?: "youtube" | "wetv" | "instagram";
 }
 
 export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDownloaderProps) {
@@ -87,7 +87,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       setPlaylistData(null);
       return;
     }
-    if (platform === "youtube" && (trimmed.includes("wetv.vip") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
+    if (platform === "instagram" && !trimmed.includes("instagram.com")) {
+      setError("Please enter a valid Instagram Profile URL (e.g., https://www.instagram.com/username/)");
+      setPlaylistData(null);
+      return;
+    }
+    if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
       setError("Please enter a valid YouTube playlist URL.");
       setPlaylistData(null);
       return;
@@ -186,8 +191,18 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     const size = format?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
     setSingleDownloadTitle(video.title);
     const isWeTv = platform === "wetv";
+    const isInstagram = platform === "instagram";
     import("@/utils/downloader").then(({ executeDownload }) => {
-      executeDownload(video.url, itag, video.title, video.id, (state) => setSingleDownloadState(state), size, isWeTv ? true : needsMerge, isAudio);
+      executeDownload(
+        video.url,
+        itag,
+        video.title,
+        video.id,
+        (state) => setSingleDownloadState(state),
+        size,
+        isInstagram ? false : (isWeTv ? true : needsMerge),
+        isAudio
+      );
     });
   };
 
@@ -241,7 +256,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
           const formats = info.formats as VideoFormat[];
           const target = getTargetFormat(formats, qualityPreference);
           chosenItag = target.itag;
-          needsMerge = platform === "wetv" ? true : target.merge;
+          needsMerge = platform === "wetv" ? true : platform === "instagram" ? false : target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize = chosenFormat?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, chosenFormat?.height ?? 0, qualityPreference === "audio") : undefined);
@@ -319,9 +334,16 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       <UrlInput value={url} onChange={setUrl} onSubmit={handleAnalyze}
         placeholder={platform === "wetv"
           ? "Paste WeTV Series URL (e.g. https://wetv.vip/en/play/…)"
+          : platform === "instagram"
+          ? "Paste Instagram Profile URL (e.g. https://www.instagram.com/username/)"
           : "Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"}
         isLoading={isAnalyzing} submitLabel="Extract" />
-      {error && <ErrorBanner title="Failed to Load Playlist" message={error} />}
+      {error && (
+        <ErrorBanner
+          title={platform === "instagram" ? "Failed to Load Profile" : "Failed to Load Playlist"}
+          message={error}
+        />
+      )}
 
       {/* Floating single-video download toast */}
       <DownloadToast
@@ -353,7 +375,11 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
             videoId:   modalVideo.id,
             title:     modalVideo.title,
             author:    modalVideo.author,
-            authorUrl: platform === "wetv" ? modalVideo.url : `https://www.youtube.com/channel/${modalVideo.author}`,
+            authorUrl: platform === "wetv"
+              ? modalVideo.url
+              : platform === "instagram"
+              ? `https://www.instagram.com/${modalVideo.author}/`
+              : `https://www.youtube.com/channel/${modalVideo.author}`,
             thumbnail: modalVideo.thumbnail,
             duration:  modalVideo.duration,
             views:     0,

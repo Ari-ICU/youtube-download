@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { mkdtemp, rm, stat } from "fs/promises";
-import { createReadStream } from "fs";
+import { createReadStream, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -16,6 +16,15 @@ const YTDLP_BASE_ARGS = [
   "--remote-components", "ejs:github",
 ];
 
+function getYtDlpArgs(): string[] {
+  const args = [...YTDLP_BASE_ARGS];
+  const cookiesPath = join(process.cwd(), "cookies.txt");
+  if (existsSync(cookiesPath)) {
+    args.push("--cookies", cookiesPath);
+  }
+  return args;
+}
+
 // ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
 const ALLOWED_HOSTS = [
   "youtube.com",
@@ -25,6 +34,8 @@ const ALLOWED_HOSTS = [
   "music.youtube.com",
   "wetv.vip",
   "www.wetv.vip",
+  "instagram.com",
+  "www.instagram.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -70,7 +81,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return new Response(
-        JSON.stringify({ error: "Only YouTube URLs are supported." }),
+        JSON.stringify({ error: "Only YouTube, WeTV, and Instagram URLs are supported." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -132,7 +143,7 @@ export async function GET(request: Request) {
 
       await new Promise<void>((resolve, reject) => {
         ytdlpProcess = spawn(YTDLP, [
-          ...YTDLP_BASE_ARGS,
+          ...getYtDlpArgs(),
           "--no-playlist",
           "-f", formatSelector,
           "--merge-output-format", "mp4",
@@ -187,7 +198,7 @@ export async function GET(request: Request) {
 
     // ── Direct pipe path (combined or audio-only streams) ────────────────────
     ytdlpProcess = spawn(YTDLP, [
-      ...YTDLP_BASE_ARGS,
+      ...getYtDlpArgs(),
       "--no-playlist",
       "-f", formatId,
       "-o", "-",

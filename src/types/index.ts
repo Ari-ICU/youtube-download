@@ -1,5 +1,5 @@
 // ─── Domain Types ────────────────────────────────────────────────────────────
-// Central type definitions for the VibeTube downloader.
+// Central type definitions for the Anivora downloader.
 // Import from "@/types" in any component or utility.
 
 export interface VideoDetails {

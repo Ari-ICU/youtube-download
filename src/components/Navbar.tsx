@@ -1,12 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Tv } from "lucide-react";
+import { Play, Tv, Camera } from "lucide-react";
 import Image from "next/image";
 
 interface NavbarProps {
-  platform: "youtube" | "wetv";
-  setPlatform: (platform: "youtube" | "wetv") => void;
+  platform: "youtube" | "wetv" | "instagram";
+  setPlatform: (platform: "youtube" | "wetv" | "instagram") => void;
 }
 
 export default function Navbar({ platform, setPlatform }: NavbarProps) {
@@ -19,14 +19,14 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
           <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 shadow-lg group-hover:border-violet-500/50 transition-colors duration-300">
             <Image
               src="/logo.png"
-              alt="VibeTube Logo"
+              alt="Anivora Logo"
               fill
               sizes="32px"
               className="object-cover"
             />
           </div>
           <span className="text-sm sm:text-base font-black tracking-wider bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent group-hover:from-violet-300 group-hover:to-white transition-all duration-300">
-            VIBETUBE
+            ANIVORA
           </span>
         </div>
 
@@ -56,6 +56,19 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
           >
             <Tv className="w-3.5 h-3.5 shrink-0" />
             <span>WeTV</span>
+          </button>
+
+          {/* Instagram button */}
+          <button
+            onClick={() => setPlatform("instagram")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
+              platform === "instagram"
+                ? "bg-pink-600/20 text-pink-400 border border-pink-500/20 shadow-[0_0_15px_rgba(219,39,119,0.15)]"
+                : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5 shrink-0" />
+            <span>Instagram</span>
           </button>
         </div>
 

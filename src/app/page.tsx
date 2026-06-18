@@ -10,10 +10,11 @@ import Footer from "@/components/Footer";
 import SingleDownloader from "@/components/SingleDownloader";
 import PlaylistDownloader from "@/components/PlaylistDownloader";
 import WeTVDownloader from "@/components/WeTVDownloader";
+import InstagramDownloader from "@/components/InstagramDownloader";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
-  const [platform, setPlatform] = useState<"youtube" | "wetv">("youtube");
+  const [platform, setPlatform] = useState<"youtube" | "wetv" | "instagram">("youtube");
   const [activeTab, setActiveTab] = useState<ActiveTab>("single");
 
   return (
@@ -27,9 +28,9 @@ export default function Home() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "WebApplication",
-            name: "VibeTube",
-            url: "https://vibetube.app",
-            logo: "https://vibetube.app/logo.png",
+            name: "Anivora",
+            url: "https://anivora.app",
+            logo: "https://anivora.app/logo.png",
             description:
               "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly.",
             applicationCategory: "MultimediaApplication",
@@ -44,7 +45,7 @@ export default function Home() {
       <div className="bg-blob z-0" style={{ bottom: "-15%", right: "-10%", width: "60%", height: "60%", animationDelay: "1.5s" }} />
 
       {/* Main container — full width on mobile, capped on desktop */}
-      <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between py-8 sm:py-12 px-4 sm:px-6 md:px-8">
+      <div className="w-full max-w-5xl max-h-full z-10 flex flex-col flex-1 justify-between py-8 sm:py-12 px-4 sm:px-6 md:px-8">
         <Header platform={platform} />
         
         <Tabs activeTab={activeTab} setActiveTab={setActiveTab} platform={platform} />
@@ -100,6 +101,32 @@ export default function Home() {
                 className="w-full"
               >
                 <PlaylistDownloader platform="wetv" />
+              </motion.div>
+            )}
+
+            {platform === "instagram" && activeTab === "single" && (
+              <motion.div
+                key="instagram-single-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <InstagramDownloader />
+              </motion.div>
+            )}
+
+            {platform === "instagram" && activeTab === "playlist" && (
+              <motion.div
+                key="instagram-playlist-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <PlaylistDownloader platform="instagram" />
               </motion.div>
             )}
           </AnimatePresence>

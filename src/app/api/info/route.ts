@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
+import { existsSync } from "fs";
+import { join } from "path";
+
 const execFileAsync = promisify(execFile);
 
 const YTDLP = "yt-dlp";
@@ -16,6 +19,15 @@ const YTDLP_BASE_ARGS = [
   "--remote-components", "ejs:github",
 ];
 
+function getYtDlpArgs(): string[] {
+  const args = [...YTDLP_BASE_ARGS];
+  const cookiesPath = join(process.cwd(), "cookies.txt");
+  if (existsSync(cookiesPath)) {
+    args.push("--cookies", cookiesPath);
+  }
+  return args;
+}
+
 // ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
 const ALLOWED_HOSTS = [
   "youtube.com",
@@ -25,6 +37,8 @@ const ALLOWED_HOSTS = [
   "music.youtube.com",
   "wetv.vip",
   "www.wetv.vip",
+  "instagram.com",
+  "www.instagram.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -93,7 +107,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ──────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return NextResponse.json(
-        { error: "Only YouTube URLs are supported." },
+        { error: "Only YouTube, WeTV, and Instagram URLs are supported." },
         { status: 400 }
       );
     }
@@ -102,7 +116,7 @@ export async function GET(request: Request) {
     // execFile (not exec) prevents shell injection — args are passed as an array.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...YTDLP_BASE_ARGS, "--dump-json", "--no-playlist", decodedUrl],
+      [...getYtDlpArgs(), "--dump-json", "--no-playlist", decodedUrl],
       { maxBuffer: 10 * 1024 * 1024 } // 10 MB cap
     );
 
@@ -277,11 +291,12 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ details, formats });
   } catch (error: unknown) {
-    const msg =
-      error instanceof Error
-        ? error.message
-        : "Failed to retrieve video information.";
-    console.error("Error in /api/info:", msg);
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    let msg = rawMsg;
+    if (rawMsg.includes("instagram") && (rawMsg.includes("Unable to extract data") || rawMsg.includes("login") || rawMsg.includes("cookies"))) {
+      msg = "Instagram restricts extracting content without account cookies. Please make sure the URL is a direct link to a public video/reel, or place a cookies.txt file in the project root to authenticate.";
+    }
+    console.error("Error in /api/info:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
