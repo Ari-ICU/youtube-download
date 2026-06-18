@@ -95,84 +95,151 @@ export async function GET(request: Request) {
     }
 
     const isInstagramUrl = decodedUrl.includes("instagram.com");
-    const isInstagramProfile = isInstagramUrl && !decodedUrl.includes("/p/") && !decodedUrl.includes("/reel/") && !decodedUrl.includes("/tv/");
+    // Detect profile-level URLs (not individual posts/reels)
+    const isInstagramProfile = isInstagramUrl && !decodedUrl.includes("/reel/") && !decodedUrl.includes("/tv/");
+    // Detect if URL points specifically to the /reels/ tab
+    const isReelsTab = isInstagramUrl && /\/reels\/?$/.test(new URL(decodedUrl).pathname);
 
     if (isInstagramProfile) {
       let username = "";
       try {
         const parsed = new URL(decodedUrl);
         const parts = parsed.pathname.split("/").filter(Boolean);
-        username = parts[0];
+        // Handle /username/ and /username/reels/ etc.
+        username = parts[0] === "reels" || parts[0] === "explore" ? "" : parts[0];
       } catch {
         return NextResponse.json({ error: "Invalid Instagram Profile URL." }, { status: 400 });
       }
 
-      if (username && username !== "reels" && username !== "explore") {
+      if (username) {
         try {
-          const response = await fetch(
+          const IG_HEADERS = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+            "X-IG-App-ID": "936619743392459",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://www.instagram.com",
+            "Referer": `https://www.instagram.com/${username}/`,
+          };
+
+          // ── Step 1: Fetch profile to get user info + first batch of posts ─────
+          const profileRes = await fetch(
             `https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`,
-            {
-              headers: {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-                "X-IG-App-ID": "936619743392459",
-                "Accept": "*/*",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Origin": "https://www.instagram.com",
-                "Referer": `https://www.instagram.com/${username}/`,
-              },
-              next: { revalidate: 60 },
-            }
+            { headers: IG_HEADERS }
           );
 
-          if (response.ok) {
-            const json = await response.json();
-            const user = json.data?.user;
-            if (user) {
-              const entries = user.edge_owner_to_timeline_media?.edges ?? [];
-              const playlistThumb = user.profile_pic_url_hd ?? user.profile_pic_url ?? "";
+          if (profileRes.ok) {
+            const profileJson = await profileRes.json();
+            const user = profileJson.data?.user;
 
-              const videos = entries
-                .map((edge: any, index: number) => {
-                  const node = edge.node;
-                  const id = node.shortcode ?? node.id;
-                  const title = node.edge_media_to_caption?.edges[0]?.node?.text ?? `Instagram Video ${index + 1}`;
-                  const thumb = node.display_url ?? playlistThumb;
-                  
-                  let duration = 0;
-                  if (node.video_duration) {
-                    duration = Math.round(node.video_duration);
-                  } else if (node.video_url) {
-                    try {
-                      const efgMatch = node.video_url.match(/[&?]efg=([^&]+)/);
-                      if (efgMatch) {
-                        const decoded = Buffer.from(decodeURIComponent(efgMatch[1]), "base64").toString("utf-8");
-                        const parsed = JSON.parse(decoded);
-                        if (parsed && typeof parsed.duration_s === "number") {
-                          duration = Math.round(parsed.duration_s);
+            if (user) {
+              const userId: string = user.id ?? "";
+              const playlistThumb: string = user.profile_pic_url_hd ?? user.profile_pic_url ?? "";
+
+              // Collect all edges across pages (up to MAX_POSTS)
+              const MAX_POSTS = 200;
+              let allEdges: any[] = user.edge_owner_to_timeline_media?.edges ?? [];
+              let moreAvailable: boolean = user.edge_owner_to_timeline_media?.page_info?.has_next_page ?? false;
+              let maxId: string | null = user.edge_owner_to_timeline_media?.page_info?.end_cursor ?? null;
+
+              // ── Step 2: Paginate via /api/v1/feed/user/{userId}/?max_id=… ─
+              while (moreAvailable && maxId && allEdges.length < MAX_POSTS) {
+                try {
+                  const feedRes = await fetch(
+                    `https://www.instagram.com/api/v1/feed/user/${userId}/?count=12&max_id=${encodeURIComponent(maxId)}`,
+                    { headers: IG_HEADERS }
+                  );
+                  if (!feedRes.ok) break;
+                  const feedJson = await feedRes.json();
+                  if (feedJson.status !== "ok") break;
+                  const feedItems: any[] = feedJson.items ?? [];
+                  if (feedItems.length === 0) break;
+                  // Convert feed items to edge-like objects for uniform processing
+                  // media_type: 1=photo, 2=video/reel, 8=carousel
+                  const feedEdges: any[] = [];
+                  for (const item of feedItems) {
+                    const captionEdges = item.caption ? [{ node: { text: item.caption.text ?? "" } }] : [];
+                    if (item.media_type === 2) {
+                      // Direct video/reel
+                      feedEdges.push({
+                        node: {
+                          shortcode: item.code ?? item.pk,
+                          id: item.pk,
+                          is_video: true,
+                          video_duration: item.video_duration ?? 0,
+                          display_url: item.image_versions2?.candidates?.[0]?.url ?? "",
+                          edge_media_to_caption: { edges: captionEdges },
+                        },
+                      });
+                    } else if (item.media_type === 8) {
+                      // Carousel — check each carousel item for embedded videos
+                      for (const carItem of (item.carousel_media ?? [])) {
+                        if (carItem.media_type === 2) {
+                          feedEdges.push({
+                            node: {
+                              shortcode: carItem.code ?? item.code ?? item.pk,
+                              id: carItem.pk ?? item.pk,
+                              is_video: true,
+                              video_duration: carItem.video_duration ?? 0,
+                              display_url: carItem.image_versions2?.candidates?.[0]?.url ?? "",
+                              edge_media_to_caption: { edges: captionEdges },
+                            },
+                          });
                         }
                       }
-                    } catch (e) {
-                      // ignore
                     }
+                    // media_type 1 = photo — skip
                   }
+                  allEdges = [...allEdges, ...feedEdges];
+                  moreAvailable = feedJson.more_available ?? false;
+                  maxId = feedJson.next_max_id ?? null;
+                  // Small delay to avoid rate-limiting
+                  await new Promise((r) => setTimeout(r, 150));
+                } catch {
+                  break;
+                }
+              }
 
-                  return {
-                    id,
-                    title,
-                    thumbnail: thumb,
-                    duration,
-                    durationText: duration > 0 ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}` : "",
-                    author: user.full_name ?? user.username ?? "Instagram User",
-                    url: `https://www.instagram.com/p/${id}/`,
-                    index,
-                    isVideo: !!node.is_video,
-                  };
-                })
-                .filter((v: any) => v.isVideo);
+              // ── Step 3: Map all collected edges to playlist video objects ──
+              const mapEdge = (edge: any, index: number) => {
+                const node = edge.node;
+                const id = node.shortcode ?? node.id;
+                const caption = node.edge_media_to_caption?.edges[0]?.node?.text ?? "";
+                const title = caption.trim()
+                  ? caption.replace(/\n/g, " ").slice(0, 120)
+                  : `Instagram Video ${index + 1}`;
+                const thumb = node.display_url ?? playlistThumb;
+
+                let duration = 0;
+                if (node.video_duration) {
+                  duration = Math.round(node.video_duration);
+                }
+
+                return {
+                  id,
+                  title,
+                  thumbnail: thumb,
+                  duration,
+                  durationText: duration > 0
+                    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
+                    : "",
+                  author: user.full_name ?? user.username ?? "Instagram User",
+                  url: `https://www.instagram.com/p/${id}/`,
+                  index,
+                  isVideo: !!node.is_video,
+                };
+              };
+
+              const videos = allEdges
+                .map((edge: any, i: number) => mapEdge(edge, i))
+                .filter((v: any) => v.isVideo)
+                .map((v: any, i: number) => ({ ...v, index: i }));
 
               const playlist = {
                 id: user.username ?? username,
-                title: user.full_name ? `${user.full_name} (@${user.username})` : `@${user.username} Profile`,
+                title: user.full_name
+                  ? `${user.full_name} (@${user.username})`
+                  : `@${user.username} Profile`,
                 author: user.username,
                 videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
                 thumbnail: playlistThumb,
@@ -183,7 +250,7 @@ export async function GET(request: Request) {
             }
           }
         } catch (err: unknown) {
-          console.error("Instagram profile API error fallback:", err instanceof Error ? err.message : String(err));
+          console.error("Instagram profile API error:", err instanceof Error ? err.message : String(err));
         }
       }
     }

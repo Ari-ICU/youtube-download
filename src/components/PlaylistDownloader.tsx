@@ -100,6 +100,17 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       setPlaylistData(null);
       return;
     }
+    // Reels tab URLs need authentication — warn the user
+    if (platform === "instagram" && /instagram\.com\/[^/]+\/reels\/?$/.test(trimmed)) {
+      setError(
+        "The /reels/ tab requires Instagram login cookies to access. " +
+        "Try using the plain profile URL instead (e.g. https://www.instagram.com/username/) " +
+        "which shows feed videos without login. To access Reels, place a cookies.txt file " +
+        "(Netscape format) in the project root."
+      );
+      setPlaylistData(null);
+      return;
+    }
     if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
       setError("Please enter a valid YouTube playlist URL.");
       setPlaylistData(null);
