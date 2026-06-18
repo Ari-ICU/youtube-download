@@ -11,6 +11,14 @@ import ErrorBanner from "@/components/ui/ErrorBanner";
 import DownloadToast from "@/components/ui/DownloadToast";
 import QualityPreview from "@/components/ui/QualityPreview";
 
+const getProxyUrl = (url?: string) => {
+  if (!url) return "/logo.png";
+  if (url.includes("fbcdn.net") || url.includes("cdninstagram.com") || url.includes("instagram.com")) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+};
+
 export default function InstagramDownloader() {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -120,9 +128,10 @@ export default function InstagramDownloader() {
               <div className="relative aspect-video rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={data.details.thumbnail}
+                  src={getProxyUrl(data.details.thumbnail)}
                   alt={data.details.title}
                   className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.src = "/logo.png"; }}
                 />
                 {data.details.duration > 0 && (
                   <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-[10px] font-bold text-zinc-100 backdrop-blur-sm flex items-center gap-1 border border-white/5">

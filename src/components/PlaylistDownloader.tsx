@@ -27,6 +27,14 @@ const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
   { value: "audio", label: "Audio Only",     description: "Best M4A track",         icon: <Music    className="w-3.5 h-3.5 text-brand-pink"   /> },
 ];
 
+const getProxyUrl = (url?: string) => {
+  if (!url) return "/logo.png";
+  if (url.includes("fbcdn.net") || url.includes("cdninstagram.com") || url.includes("instagram.com")) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+};
+
 interface PlaylistDownloaderProps {
   platform?: "youtube" | "wetv" | "instagram";
 }
@@ -380,7 +388,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
               : platform === "instagram"
               ? `https://www.instagram.com/${modalVideo.author}/`
               : `https://www.youtube.com/channel/${modalVideo.author}`,
-            thumbnail: modalVideo.thumbnail,
+            thumbnail: getProxyUrl(modalVideo.thumbnail),
             duration:  modalVideo.duration,
             views:     0,
             description: "",
@@ -404,7 +412,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
               className="w-full flex items-center gap-3 p-3.5 cursor-pointer hover:bg-white/[0.03] transition-colors">
               <div className="relative w-14 aspect-video rounded-lg overflow-hidden border border-white/10 shrink-0">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={playlistData.thumbnail || "/logo.png"} alt={playlistData.title} className="w-full h-full object-cover" />
+                <img
+                  src={getProxyUrl(playlistData.thumbnail)}
+                  alt={playlistData.title}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                />
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <p className="text-xs font-bold text-zinc-100 truncate">{playlistData.title}</p>
@@ -464,7 +477,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
             <div className="lg:col-span-4 glass-panel rounded-3xl p-6 border border-white/5 flex flex-col gap-5 self-start">
               <div className="relative aspect-video rounded-xl overflow-hidden shadow-lg border border-white/10">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={playlistData.thumbnail || "/logo.png"} alt={playlistData.title} className="w-full h-full object-cover" />
+                <img
+                  src={getProxyUrl(playlistData.thumbnail)}
+                  alt={playlistData.title}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
                   <span className="text-[10px] font-bold text-zinc-100 bg-brand-purple px-2 py-0.5 rounded border border-white/5">{playlistData.videoCountText}</span>
                 </div>
@@ -542,7 +560,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                       </div>
                       <div className="relative w-20 aspect-video rounded-lg overflow-hidden border border-white/5 shrink-0">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={video.thumbnail || "/logo.png"} alt={video.title} className="w-full h-full object-cover" />
+                        <img
+                          src={getProxyUrl(video.thumbnail)}
+                          alt={video.title}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                        />
                         <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded">
                           {video.durationText || formatDuration(video.duration)}
                         </div>
@@ -629,7 +652,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                     </div>
                     <div className="relative w-16 aspect-video rounded-md overflow-hidden border border-white/5 shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={video.thumbnail || "/logo.png"} alt={video.title} className="w-full h-full object-cover" />
+                      <img
+                        src={getProxyUrl(video.thumbnail)}
+                        alt={video.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                      />
                       <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[7px] px-1 rounded">
                         {video.durationText || formatDuration(video.duration)}
                       </div>
