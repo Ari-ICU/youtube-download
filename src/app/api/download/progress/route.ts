@@ -253,10 +253,13 @@ export async function GET(request: Request) {
         // yt-dlp writes [download] progress lines to stderr.
         // We collect them in a buffer and flush on each newline.
         let stderrBuf = "";
+        let fullStderr = "";
 
         const onStderrData = (chunk: Buffer) => {
           if (controllerClosed) return;
-          stderrBuf += chunk.toString("utf8");
+          const str = chunk.toString("utf8");
+          stderrBuf += str;
+          fullStderr += str;
           const lines = stderrBuf.split("\n");
           stderrBuf = lines.pop() ?? "";
           for (const line of lines) {
@@ -285,7 +288,9 @@ export async function GET(request: Request) {
         });
 
         if (exitCode !== 0) {
-          safeSend("error", { message: `yt-dlp exited with code ${exitCode}` });
+          const errMsg = fullStderr.trim() || `yt-dlp exited with code ${exitCode}`;
+          console.error("yt-dlp progress error:", errMsg);
+          safeSend("error", { message: errMsg });
           closeController();
           if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
           return;

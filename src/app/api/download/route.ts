@@ -181,7 +181,7 @@ export async function GET(request: Request) {
           } else {
             const stderr = Buffer.concat(stderrChunks).toString();
             console.error(`yt-dlp merge exited with code ${code}:`, stderr);
-            reject(new Error(`yt-dlp exited with code ${code}`));
+            reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
           }
         });
         ytdlpProcess.on("error", reject);
