@@ -18,6 +18,7 @@ const YTDLP = "yt-dlp";
 const YTDLP_BASE_ARGS = [
   "--extractor-args", "youtube:player_client=web,android,android_vr",
   "--no-warnings",
+  "--js-runtimes", "node",
 ];
 
 function getYtDlpArgs(): string[] {
