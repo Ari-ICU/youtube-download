@@ -9,20 +9,35 @@ const execFileAsync = promisify(execFile);
 
 const YTDLP = "yt-dlp";
 
-// Player clients:
-// - web:         broad compatibility, standard streams up to 1080p
-// - android:     works for region-restricted & geo-blocked videos
-// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams
-// Note: --js-runtimes and --remote-components removed; they fetch JS solvers
-// from GitHub at runtime and break downloads when the network is unavailable.
-const YTDLP_BASE_ARGS = [
+// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
+// YouTube: multi-client to unlock 4K/restricted streams.
+// Bilibili TV: geo-bypass + bilibili extractor to access free public content
+//              without a Premium account or region lock.
+// Other sites: minimal args.
+const YTDLP_YOUTUBE_ARGS = [
   "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--no-warnings",
   "--js-runtimes", "node",
 ];
 
-function getYtDlpArgs(): string[] {
+const YTDLP_BILIBILI_ARGS = [
+  // Bypass geographic content restrictions
+  "--geo-bypass",
+  // Use the international bilibili extractor (bilibili:fnval=16 requests dash
+  // streams; leaving it at default lets yt-dlp pick the best available stream).
+  "--extractor-args", "BiliBiliTV:lang=en",
+];
+
+const YTDLP_BASE_ARGS = ["--no-warnings"];
+
+function buildYtDlpArgs(url: string): string[] {
   const args = [...YTDLP_BASE_ARGS];
+
+  if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    args.push(...YTDLP_YOUTUBE_ARGS);
+  } else if (url.includes("bilibili.tv")) {
+    args.push(...YTDLP_BILIBILI_ARGS);
+  }
+
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -41,6 +56,8 @@ const ALLOWED_HOSTS = [
   "www.wetv.vip",
   "instagram.com",
   "www.instagram.com",
+  "bilibili.tv",
+  "www.bilibili.tv",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -106,10 +123,10 @@ export async function GET(request: Request) {
 
     const decodedUrl = decodeURIComponent(url);
 
-    // ── Security: reject non-YouTube URLs ──────────────────────────────────────
+    // ── Security: reject non-allowlisted URLs ────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return NextResponse.json(
-        { error: "Only YouTube, WeTV, and Instagram URLs are supported." },
+        { error: "Only YouTube, WeTV, Instagram, and Bilibili TV URLs are supported." },
         { status: 400 }
       );
     }
@@ -118,7 +135,7 @@ export async function GET(request: Request) {
     // execFile (not exec) prevents shell injection — args are passed as an array.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...getYtDlpArgs(), "--dump-json", "--no-playlist", decodedUrl],
+      [...buildYtDlpArgs(decodedUrl), "--dump-json", "--no-playlist", decodedUrl],
       { maxBuffer: 10 * 1024 * 1024 } // 10 MB cap
     );
 
@@ -175,25 +192,27 @@ export async function GET(request: Request) {
     };
 
     const isWeTvUrl = decodedUrl.includes("wetv.vip");
+    const isBilibiliTvUrl = decodedUrl.includes("bilibili.tv");
+    const isHlsSite = isWeTvUrl || isBilibiliTvUrl;
 
     const mapped: MappedFormat[] = rawFormats
       .filter((f) => {
         const proto = f.protocol ?? "";
         if (proto === "mhtml") return false;
-        if (proto.includes("m3u8") && !isWeTvUrl) return false;
+        if (proto.includes("m3u8") && !isHlsSite) return false;
         const hasVideo = f.vcodec && f.vcodec !== "none";
         const hasAudio = f.acodec && f.acodec !== "none";
-        return !!(hasVideo || hasAudio || isWeTvUrl);
+        return !!(hasVideo || hasAudio || isHlsSite);
       })
       .map((f) => {
-        const hasVideo = isWeTvUrl ? true : !!(f.vcodec && f.vcodec !== "none");
-        const hasAudio = isWeTvUrl ? true : !!(f.acodec && f.acodec !== "none");
+        const hasVideo = isHlsSite ? true : !!(f.vcodec && f.vcodec !== "none");
+        const hasAudio = isHlsSite ? true : !!(f.acodec && f.acodec !== "none");
         const height = f.height ?? 0;
         const vc = shortCodec(f.vcodec);
         const ac = shortCodec(f.acodec);
         const vbr = f.vbr ?? (hasVideo && !hasAudio ? (f.tbr ?? null) : null);
 
-        const qualityLabel = (isWeTvUrl && f.format_note)
+        const qualityLabel = (isHlsSite && f.format_note)
           ? f.format_note
           : hasVideo
           ? heightToLabel(height)
@@ -297,6 +316,25 @@ export async function GET(request: Request) {
     let msg = rawMsg;
     if (rawMsg.includes("instagram") && (rawMsg.includes("Unable to extract data") || rawMsg.includes("login") || rawMsg.includes("cookies"))) {
       msg = "Instagram restricts extracting content without account cookies. Please make sure the URL is a direct link to a public video/reel, or place a cookies.txt file in the project root to authenticate.";
+    }
+    const cookiesPath = join(process.cwd(), "cookies.txt");
+    const hasCookies = existsSync(cookiesPath);
+    if (rawMsg.includes("only available for registered users") || rawMsg.includes("login required")) {
+      if (hasCookies) {
+        msg = "This video/episode requires a Bilibili TV Premium (VIP) subscription. The cookies you uploaded are from a free/regular account. Please upload a cookies.txt exported from a logged-in Premium/VIP account to access VIP content.";
+      } else {
+        msg = "This video/episode is restricted to registered Bilibili TV users. Please upload a cookies.txt file using the Cookie Manager above to authenticate.";
+      }
+    } else if (
+      rawMsg.includes("BiliIntl") ||
+      rawMsg.includes("bilibili.tv") ||
+      rawMsg.includes("NoneType") ||
+      rawMsg.includes("Unknown error. Please contact customer service")
+    ) {
+      msg =
+        "Bilibili TV's API is geo-restricted from this server location. " +
+        "To fix this: (1) Upload cookies.txt from a logged-in Bilibili TV Premium browser session using the Cookie Manager above, " +
+        "or (2) make sure your server/VPN is in a region where bilibili.tv is accessible (Southeast Asia / global).";
     }
     console.error("Error in /api/info:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -10,6 +10,7 @@ interface UrlInputProps {
   isLoading: boolean;
   submitLabel?: string;
   loadingLabel?: string;
+  buttonClassName?: string;
 }
 
 export default function UrlInput({
@@ -20,6 +21,7 @@ export default function UrlInput({
   isLoading,
   submitLabel = "Analyze",
   loadingLabel = "Parsing...",
+  buttonClassName = "bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900",
 }: UrlInputProps) {
   const handlePaste = async () => {
     try {
@@ -68,7 +70,7 @@ export default function UrlInput({
       <button
         type="submit"
         disabled={isLoading || !value.trim()}
-        className="shrink-0 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-900 disabled:opacity-50 text-white font-bold text-xs sm:text-sm px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap"
+        className={`shrink-0 ${buttonClassName} disabled:opacity-50 text-white font-bold text-xs sm:text-sm px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap`}
       >
         {isLoading ? (
           <>

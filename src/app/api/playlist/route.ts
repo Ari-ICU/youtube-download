@@ -5,20 +5,26 @@ import { join } from "path";
 
 const YTDLP = "yt-dlp";
 
-// Player clients:
-// - web:         broad compatibility, standard streams up to 1080p
-// - android:     works for region-restricted & geo-blocked videos
-// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams
-// Note: --js-runtimes and --remote-components removed; they fetch JS solvers
-// from GitHub at runtime and break downloads when the network is unavailable.
-const YTDLP_BASE_ARGS = [
+// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
+const YTDLP_YOUTUBE_ARGS = [
   "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--no-warnings",
   "--js-runtimes", "node",
 ];
 
-function getYtDlpArgs(): string[] {
+const YTDLP_BILIBILI_ARGS = [
+  "--geo-bypass",
+  "--extractor-args", "BiliBiliTV:lang=en",
+];
+
+const YTDLP_BASE_ARGS = ["--no-warnings"];
+
+function buildYtDlpArgs(url: string): string[] {
   const args = [...YTDLP_BASE_ARGS];
+  if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    args.push(...YTDLP_YOUTUBE_ARGS);
+  } else if (url.includes("bilibili.tv")) {
+    args.push(...YTDLP_BILIBILI_ARGS);
+  }
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -26,7 +32,7 @@ function getYtDlpArgs(): string[] {
   return args;
 }
 
-// ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
+// ─── Security: allowlist YouTube, WeTV, Instagram, and Bilibili TV domains ────
 const ALLOWED_HOSTS = [
   "youtube.com",
   "www.youtube.com",
@@ -37,6 +43,8 @@ const ALLOWED_HOSTS = [
   "www.wetv.vip",
   "instagram.com",
   "www.instagram.com",
+  "bilibili.tv",
+  "www.bilibili.tv",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -175,6 +183,7 @@ export async function GET(request: Request) {
                       });
                     } else if (item.media_type === 8) {
                       // Carousel — check each carousel item for embedded videos
+                      let carIdx = 0;
                       for (const carItem of (item.carousel_media ?? [])) {
                         if (carItem.media_type === 2) {
                           feedEdges.push({
@@ -185,6 +194,7 @@ export async function GET(request: Request) {
                               video_duration: carItem.video_duration ?? 0,
                               display_url: carItem.image_versions2?.candidates?.[0]?.url ?? "",
                               edge_media_to_caption: { edges: captionEdges },
+                              carousel_index: carIdx++,
                             },
                           });
                         }
@@ -205,7 +215,8 @@ export async function GET(request: Request) {
               // ── Step 3: Map all collected edges to playlist video objects ──
               const mapEdge = (edge: any, index: number) => {
                 const node = edge.node;
-                const id = node.shortcode ?? node.id;
+                const baseId = node.shortcode ?? node.id;
+                const id = baseId + (node.carousel_index !== undefined ? `-${node.carousel_index}` : "");
                 const caption = node.edge_media_to_caption?.edges[0]?.node?.text ?? "";
                 const title = caption.trim()
                   ? caption.replace(/\n/g, " ").slice(0, 120)
@@ -226,16 +237,26 @@ export async function GET(request: Request) {
                     ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
                     : "",
                   author: user.full_name ?? user.username ?? "Instagram User",
-                  url: `https://www.instagram.com/p/${id}/`,
+                  url: `https://www.instagram.com/p/${baseId}/`,
                   index,
                   isVideo: !!node.is_video,
                 };
               };
 
-              const videos = allEdges
+              const uniqueVideosMap = new Map<string, any>();
+              allEdges
                 .map((edge: any, i: number) => mapEdge(edge, i))
                 .filter((v: any) => v.isVideo)
-                .map((v: any, i: number) => ({ ...v, index: i }));
+                .forEach((v: any) => {
+                  if (!uniqueVideosMap.has(v.id)) {
+                    uniqueVideosMap.set(v.id, v);
+                  }
+                });
+
+              const videos = Array.from(uniqueVideosMap.values()).map((v: any, i: number) => ({
+                ...v,
+                index: i,
+              }));
 
               const playlist = {
                 id: user.username ?? username,
@@ -257,8 +278,68 @@ export async function GET(request: Request) {
       }
     }
 
+    const isWeTvUrl = decodedUrl.includes("wetv.vip");
+    if (isWeTvUrl) {
+      try {
+        const pageRes = await fetch(decodedUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          }
+        });
+        if (!pageRes.ok) throw new Error(`WeTV returned status ${pageRes.status}`);
+        const html = await pageRes.text();
+        const nextMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
+        if (nextMatch) {
+          const nextJson = JSON.parse(nextMatch[1]);
+          const dataStr = nextJson.props?.pageProps?.data;
+          if (dataStr) {
+            const data = JSON.parse(dataStr);
+            const coverInfo = data.coverInfo || {};
+            const videoList = data.videoList || [];
+            
+            const cid = coverInfo.cid || decodedUrl.split("/").pop() || "";
+            const playlistThumb = coverInfo.posterHz || coverInfo.posterVt || "";
+            
+            const videos = videoList.map((v: any, index: number) => {
+              const id = v.vid || `ep-${index + 1}`;
+              const title = v.title || `Episode ${v.episode || (index + 1)}`;
+              const thumb = v.pic_640_360 || v.pic_496_280 || v.pic_332_187 || playlistThumb || "";
+              const duration = Math.round(v.duration || 0);
+              
+              return {
+                id,
+                title,
+                thumbnail: thumb,
+                duration,
+                durationText: duration > 0 
+                  ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}` 
+                  : "",
+                author: coverInfo.title || "WeTV",
+                url: `https://wetv.vip/en/play/${cid}/${id}`,
+                index,
+              };
+            });
+            
+            const playlist = {
+              id: cid,
+              title: coverInfo.title || "WeTV Series",
+              author: "WeTV",
+              videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
+              thumbnail: playlistThumb,
+              videos,
+            };
+            
+            return NextResponse.json({ playlist });
+          }
+        }
+      } catch (err: unknown) {
+        console.error("WeTV series page parse error:", err instanceof Error ? err.message : String(err));
+        return NextResponse.json({ error: "Failed to load WeTV series. Please verify the URL." }, { status: 500 });
+      }
+    }
+
     const stdout = await runYtDlp([
-      ...getYtDlpArgs(),
+      ...buildYtDlpArgs(decodedUrl),
       "--flat-playlist",
       "--dump-single-json",
       decodedUrl,
@@ -266,7 +347,7 @@ export async function GET(request: Request) {
 
     const info = JSON.parse(stdout);
 
-    const isWeTvUrl = decodedUrl.includes("wetv.vip");
+    const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
 
     const entries: any[] = info.entries ?? [];
 
@@ -279,16 +360,34 @@ export async function GET(request: Request) {
     const videos = entries
       .map((e, index) => {
         const id = e.id ?? e.url?.split("/").pop() ?? `ep-${index + 1}`;
+
+        let smuggled: any = {};
+        if (isBilibiliUrl && e.url && e.url.includes("__youtubedl_smuggle=")) {
+          try {
+            const hash = e.url.split("#")[1] || "";
+            const params = new URLSearchParams(hash);
+            const smugStr = params.get("__youtubedl_smuggle");
+            if (smugStr) {
+              smuggled = JSON.parse(decodeURIComponent(smugStr));
+            }
+          } catch (err) {
+            console.error("Failed to parse smuggled Bilibili metadata:", err);
+          }
+        }
+
         const thumbs = e.thumbnails ?? [];
         const thumb =
           thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
           e.thumbnail ??
+          smuggled.thumbnail ??
           playlistThumb ??
-          ((isWeTvUrl || isInstagramUrl) ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
+          ((isWeTvUrl || isInstagramUrl || isBilibiliUrl) ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
 
-        const videoTitle = e.title ?? (isWeTvUrl ? `Episode ${index + 1}` : isInstagramUrl ? `Instagram Video ${index + 1}` : `Video ${index + 1}`);
+        const videoTitle = e.title ?? smuggled.title ?? (isWeTvUrl ? `Episode ${index + 1}` : isBilibiliUrl ? `Episode ${index + 1}` : isInstagramUrl ? `Instagram Video ${index + 1}` : `Video ${index + 1}`);
         const defaultUrl = isWeTvUrl
           ? `https://wetv.vip/en/play/${info.id}/${id}`
+          : isBilibiliUrl
+          ? `https://www.bilibili.tv/en/play/${info.id}/${id}`
           : isInstagramUrl
           ? `https://www.instagram.com/p/${id}/`
           : `https://www.youtube.com/watch?v=${id}`;
@@ -300,7 +399,7 @@ export async function GET(request: Request) {
           thumbnail: thumb,
           duration: Math.round(e.duration ?? 0),
           durationText: e.duration_string ?? "",
-          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : isInstagramUrl ? (info.title ?? "Instagram") : ""),
+          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : isBilibiliUrl ? "Bilibili TV" : isInstagramUrl ? (info.title ?? "Instagram") : ""),
           url: videoUrl,
           index,
         };
@@ -308,8 +407,8 @@ export async function GET(request: Request) {
 
     const playlist = {
       id: info.id ?? "",
-      title: info.title ?? (isWeTvUrl ? "WeTV Series" : isInstagramUrl ? `${info.id ?? "Instagram"} Profile` : "Untitled Playlist"),
-      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : isInstagramUrl ? (info.id ?? "Instagram") : "Unknown"),
+      title: info.title ?? (isWeTvUrl ? "WeTV Series" : isBilibiliUrl ? "Bilibili TV Series" : isInstagramUrl ? `${info.id ?? "Instagram"} Profile` : "Untitled Playlist"),
+      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : isBilibiliUrl ? "Bilibili TV" : isInstagramUrl ? (info.id ?? "Instagram") : "Unknown"),
       videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
       thumbnail: playlistThumb || (videos[0]?.thumbnail ?? ""),
       videos,
@@ -323,6 +422,15 @@ export async function GET(request: Request) {
       msg = "Instagram restricts scanning profile pages without account cookies. Please download individual videos/reels directly using the Single Downloader, or place a cookies.txt file in the project root to authenticate.";
     } else if (rawMsg.includes("instagram")) {
       msg = "Failed to retrieve Instagram profile. Try downloading the reel directly in the Single tab using its specific URL.";
+    } else if (
+      rawMsg.includes("BiliIntl") ||
+      rawMsg.includes("bilibili.tv") ||
+      rawMsg.includes("NoneType") ||
+      rawMsg.includes("Unknown error")
+    ) {
+      msg =
+        "Bilibili TV's API is geo-restricted from this server location. " +
+        "Make sure your server/VPN is in a region where bilibili.tv is accessible (Southeast Asia / global).";
     }
     console.error("Error in /api/playlist:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });

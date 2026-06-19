@@ -1,12 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Tv, Camera } from "lucide-react";
+import { Play, Tv, Camera, Film } from "lucide-react";
 import Image from "next/image";
 
 interface NavbarProps {
-  platform: "youtube" | "wetv" | "instagram";
-  setPlatform: (platform: "youtube" | "wetv" | "instagram") => void;
+  platform: "youtube" | "wetv" | "instagram" | "bilibili";
+  setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili") => void;
 }
 
 const platforms = [
@@ -30,6 +30,13 @@ const platforms = [
     icon: Camera,
     activeClass:
       "bg-pink-600/20 text-pink-400 border border-pink-500/20 shadow-[0_0_15px_rgba(219,39,119,0.15)]",
+  },
+  {
+    id: "bilibili" as const,
+    label: "Bilibili TV",
+    icon: Film,
+    activeClass:
+      "bg-orange-600/20 text-orange-400 border border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.15)]",
   },
 ];
 
@@ -72,7 +79,7 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
               <span className="hidden sm:inline">{label}</span>
               {/* Short label for xs screens */}
               <span className="inline sm:hidden">
-                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : "IG"}
+                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : "BB"}
               </span>
             </motion.button>
           ))}

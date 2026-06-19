@@ -6,7 +6,7 @@ import type { ActiveTab } from "@/types";
 interface TabsProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
-  platform: "youtube" | "wetv" | "instagram";
+  platform: "youtube" | "wetv" | "instagram" | "bilibili";
 }
 
 const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.ElementType }[] = [
@@ -30,8 +30,28 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
         shortLabel: tab.id === "single" ? "Single" : "Profile",
       };
     }
+    if (platform === "bilibili") {
+      return {
+        ...tab,
+        label: tab.id === "single" ? "Video Downloader" : "Series Extractor",
+        shortLabel: tab.id === "single" ? "Video" : "Series",
+      };
+    }
     return tab;
   });
+
+  const getTabActiveClass = () => {
+    switch (platform) {
+      case "bilibili":
+        return "bg-orange-600 text-white shadow-[0_0_15px_rgba(234,88,12,0.4)]";
+      case "wetv":
+        return "bg-brand-blue text-white shadow-[0_0_15px_rgba(59,130,246,0.4)]";
+      case "instagram":
+        return "bg-brand-pink text-white shadow-[0_0_15px_rgba(236,72,153,0.4)]";
+      default:
+        return "bg-brand-purple text-white shadow-[0_0_15px_rgba(139,92,246,0.4)]";
+    }
+  };
 
   return (
     <div className="flex justify-center mb-6 sm:mb-8 px-1">
@@ -42,7 +62,7 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
             onClick={() => setActiveTab(id)}
             className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 cursor-pointer ${
               activeTab === id
-                ? "bg-violet-600 text-white shadow-[0_0_15px_rgba(139,92,246,0.4)]"
+                ? getTabActiveClass()
                 : "text-zinc-400 hover:text-white"
             }`}
           >

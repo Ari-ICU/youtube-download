@@ -7,20 +7,26 @@ import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
 
 const YTDLP = "yt-dlp";
 
-// Player clients:
-// - web:         broad compatibility, standard streams up to 1080p
-// - android:     works for region-restricted & geo-blocked videos
-// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams
-// Note: --js-runtimes and --remote-components removed; they fetch JS solvers
-// from GitHub at runtime and break downloads when the network is unavailable.
-const YTDLP_BASE_ARGS = [
+// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
+const YTDLP_YOUTUBE_ARGS = [
   "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--no-warnings",
   "--js-runtimes", "node",
 ];
 
-function getYtDlpArgs(): string[] {
+const YTDLP_BILIBILI_ARGS = [
+  "--geo-bypass",
+  "--extractor-args", "BiliBiliTV:lang=en",
+];
+
+const YTDLP_BASE_ARGS = ["--no-warnings"];
+
+function buildYtDlpArgs(url: string): string[] {
   const args = [...YTDLP_BASE_ARGS];
+  if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    args.push(...YTDLP_YOUTUBE_ARGS);
+  } else if (url.includes("bilibili.tv")) {
+    args.push(...YTDLP_BILIBILI_ARGS);
+  }
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -39,6 +45,8 @@ const ALLOWED_HOSTS = [
   "www.wetv.vip",
   "instagram.com",
   "www.instagram.com",
+  "bilibili.tv",
+  "www.bilibili.tv",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -84,7 +92,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return new Response(
-        JSON.stringify({ error: "Only YouTube, WeTV, and Instagram URLs are supported." }),
+        JSON.stringify({ error: "Only YouTube, WeTV, Instagram, and Bilibili TV URLs are supported." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -137,9 +145,11 @@ export async function GET(request: Request) {
 
       const isWeTvUrl = decodedUrl.includes("wetv.vip");
       const isInstagramUrl = decodedUrl.includes("instagram.com");
+      const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
 
       let formatSelector: string;
-      if (isWeTvUrl) {
+      if (isWeTvUrl || isBilibiliUrl) {
+        // HLS sites: format ID is the full stream selector, no merge needed
         formatSelector = formatId;
       } else if (isInstagramUrl) {
         // Instagram: prefer H.264 MP4 + M4A audio — QuickTime compatible
@@ -160,7 +170,7 @@ export async function GET(request: Request) {
       }
 
       const recodeArgs: string[] = [];
-      if (!isWeTvUrl && !isInstagramUrl) {
+      if (!isWeTvUrl && !isInstagramUrl && !isBilibiliUrl) {
         const hasVtb = await checkHevcVideotoolbox();
         if (hasVtb) {
           recodeArgs.push(
@@ -173,7 +183,7 @@ export async function GET(request: Request) {
       }
 
       const ytdlpArgs = [
-        ...getYtDlpArgs(),
+        ...buildYtDlpArgs(decodedUrl),
         "--no-playlist",
         "-f", formatSelector,
         // For Instagram, recode to H.264 to guarantee QuickTime compatibility
@@ -248,7 +258,7 @@ export async function GET(request: Request) {
 
       await new Promise<void>((resolve, reject) => {
         ytdlpProcess = spawn(YTDLP, [
-          ...getYtDlpArgs(),
+          ...buildYtDlpArgs(decodedUrl),
           "--no-playlist",
           "-f", formatSelector,
           "--merge-output-format", "mp4",
@@ -308,7 +318,7 @@ export async function GET(request: Request) {
 
     // ── Direct pipe path (combined or audio-only streams) ────────────────────
     ytdlpProcess = spawn(YTDLP, [
-      ...getYtDlpArgs(),
+      ...buildYtDlpArgs(decodedUrl),
       "--no-playlist",
       "-f", formatId,
       "-o", "-",

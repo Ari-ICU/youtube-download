@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Clock, Eye, ExternalLink } from "lucide-react";
+import { Clock, Eye } from "lucide-react";
 
 import type { VideoDetails, VideoFormat, DownloadState } from "@/types";
 import { executeDownload, formatDuration, estimateSize } from "@/utils/downloader";
@@ -10,6 +10,7 @@ import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import DownloadToast from "@/components/ui/DownloadToast";
 import QualityPreview from "@/components/ui/QualityPreview";
+import CookieManager from "@/components/ui/CookieManager";
 
 const getProxyUrl = (url?: string) => {
   if (!url) return "/logo.png";
@@ -18,15 +19,14 @@ const getProxyUrl = (url?: string) => {
     url.includes("cdninstagram.com") ||
     url.includes("instagram.com") ||
     url.includes("bstarstatic.com") ||
-    url.includes("bilibili.tv") ||
-    url.includes("wetvinfo.com")
+    url.includes("bilibili.tv")
   ) {
     return `/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
 };
 
-export default function WeTVDownloader() {
+export default function BilibiliDownloader() {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -43,8 +43,14 @@ export default function WeTVDownloader() {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
 
-    if (!trimmedUrl.includes("wetv.vip")) {
-      setError("Please enter a valid WeTV URL (e.g. https://wetv.vip/en/play/...)");
+    const isBilibiliTv =
+      trimmedUrl.includes("bilibili.tv") ||
+      trimmedUrl.includes("www.bilibili.tv");
+
+    if (!isBilibiliTv) {
+      setError(
+        "Please enter a valid Bilibili TV URL (e.g. https://www.bilibili.tv/en/video/...)"
+      );
       setData(null);
       return;
     }
@@ -57,7 +63,7 @@ export default function WeTVDownloader() {
     try {
       const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to analyze WeTV URL");
+      if (!res.ok) throw new Error(json.error ?? "Failed to analyze Bilibili TV URL");
       setData(json);
     } catch (err: unknown) {
       setError(
@@ -83,9 +89,9 @@ export default function WeTVDownloader() {
 
     setDownloadTitle(data.details.title);
 
-    // Note: We always force needsMerge=true (SSE path) for WeTV downloads.
-    // This makes yt-dlp download HLS fragments to a temp file, then remux them using ffmpeg
-    // to build a fully compliant, seekable .mp4 container before streaming to the browser.
+    // Bilibili TV uses HLS streams — always force SSE/temp-file mode so yt-dlp
+    // can download the fragments, then ffmpeg remuxes to a seekable .mp4 before
+    // streaming to the browser.
     executeDownload(
       url,
       itag,
@@ -93,7 +99,7 @@ export default function WeTVDownloader() {
       itag,
       (state) => setDownloadState(state),
       size,
-      true, // Force SSE/temp-file mode
+      true, // Force SSE/temp-file mode for HLS
       isAudio
     );
   };
@@ -104,15 +110,20 @@ export default function WeTVDownloader() {
 
   return (
     <div className="w-full flex flex-col items-center">
+      {/* Cookie manager — shown above the input so users can unlock VIP content */}
+      <CookieManager />
+
+      <div className="w-full mt-4">
       <UrlInput
         value={url}
         onChange={setUrl}
         onSubmit={handleAnalyze}
-        placeholder="Paste WeTV URL (e.g. https://wetv.vip/en/play/…)"
+        placeholder="Paste Bilibili TV URL (e.g. https://www.bilibili.tv/en/video/…)"
         isLoading={isAnalyzing}
         submitLabel="Analyze"
-        buttonClassName="bg-brand-blue hover:bg-blue-600 disabled:bg-blue-900"
+        buttonClassName="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-950"
       />
+      </div>
 
       {error && <ErrorBanner title="Failed to Load Content" message={error} />}
 
@@ -152,7 +163,7 @@ export default function WeTVDownloader() {
                   {data.details.title}
                 </h2>
                 <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-zinc-400">
-                  <span className="font-semibold text-brand-blue flex items-center gap-1 shrink-0">
+                  <span className="font-semibold text-orange-400 flex items-center gap-1 shrink-0">
                     {data.details.author}
                   </span>
                   {data.details.views > 0 && (
@@ -183,7 +194,7 @@ export default function WeTVDownloader() {
             <div className="md:col-span-7 flex flex-col gap-4">
               <div>
                 <h3 className="text-xs font-extrabold text-zinc-400 uppercase tracking-widest mb-3">
-                  Select Quality to Download (MP4 Muxed)
+                  Select Quality to Download
                 </h3>
                 <QualityPreview
                   formats={data.formats}

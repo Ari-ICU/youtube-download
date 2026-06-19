@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 
 interface HeaderProps {
-  platform: "youtube" | "wetv" | "instagram";
+  platform: "youtube" | "wetv" | "instagram" | "bilibili";
 }
 
 export default function Header({ platform }: HeaderProps) {
@@ -46,6 +46,8 @@ export default function Header({ platform }: HeaderProps) {
           ? "High-speed YouTube video and playlist downloader. Choose a format and save directly to your device."
           : platform === "wetv"
           ? "Download high-quality WeTV dramas, anime, and shows instantly."
+          : platform === "bilibili"
+          ? "Download free Bilibili TV anime and videos instantly — no Premium account needed."
           : "Download high-quality Instagram reels, videos, and posts instantly."}
       </motion.p>
     </header>

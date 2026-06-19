@@ -104,6 +104,7 @@ export default function InstagramDownloader() {
         placeholder="Paste Instagram Reel/Video URL (e.g. https://www.instagram.com/reel/…)"
         isLoading={isAnalyzing}
         submitLabel="Analyze"
+        buttonClassName="bg-brand-pink hover:bg-pink-600 disabled:bg-pink-900"
       />
 
       {error && <ErrorBanner title="Failed to Load Content" message={error} />}

@@ -29,14 +29,20 @@ const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
 
 const getProxyUrl = (url?: string) => {
   if (!url) return "/logo.png";
-  if (url.includes("fbcdn.net") || url.includes("cdninstagram.com") || url.includes("instagram.com")) {
+  if (
+    url.includes("fbcdn.net") ||
+    url.includes("cdninstagram.com") ||
+    url.includes("instagram.com") ||
+    url.includes("bstarstatic.com") ||
+    url.includes("bilibili.tv")
+  ) {
     return `/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
 };
 
 interface PlaylistDownloaderProps {
-  platform?: "youtube" | "wetv" | "instagram";
+  platform?: "youtube" | "wetv" | "instagram" | "bilibili";
 }
 
 export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDownloaderProps) {
@@ -54,6 +60,75 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
   const [currentIndex, setCurrentIndex] = useState(-1);
   // Mobile: controls panel collapsed by default
   const [controlsOpen, setControlsOpen] = useState(false);
+
+  // Brand-specific colors for maximum visual consistency
+  const isBilibili = platform === "bilibili";
+  const isWeTv = platform === "wetv";
+  const isInstagram = platform === "instagram";
+
+  const brandTextClass = isBilibili
+    ? "text-orange-400"
+    : isWeTv
+    ? "text-brand-blue"
+    : isInstagram
+    ? "text-brand-pink"
+    : "text-brand-purple";
+
+  const brandBgClass = isBilibili
+    ? "bg-orange-500 hover:bg-orange-600 disabled:bg-orange-950"
+    : isWeTv
+    ? "bg-brand-blue hover:bg-blue-600 disabled:bg-blue-900"
+    : isInstagram
+    ? "bg-brand-pink hover:bg-pink-600 disabled:bg-pink-900"
+    : "bg-brand-purple hover:bg-purple-600 disabled:bg-purple-900";
+
+  const brandTextButtonClass = isBilibili
+    ? "text-orange-400 hover:underline"
+    : isWeTv
+    ? "text-brand-blue hover:underline"
+    : isInstagram
+    ? "text-brand-pink hover:underline"
+    : "text-brand-purple hover:underline";
+
+  const brandFocusBorderClass = isBilibili
+    ? "focus:border-orange-500/50"
+    : isWeTv
+    ? "focus:border-brand-blue/50"
+    : isInstagram
+    ? "focus:border-brand-pink/50"
+    : "focus:border-brand-purple/50";
+
+  const brandBadgeClass = isBilibili
+    ? "bg-orange-500/20 text-orange-400 border-orange-500/40"
+    : isWeTv
+    ? "bg-brand-blue/20 text-brand-blue border-brand-blue/40"
+    : isInstagram
+    ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40"
+    : "bg-brand-purple/20 text-brand-purple border-brand-purple/40";
+
+  const brandBgStaticClass = isBilibili
+    ? "bg-orange-500"
+    : isWeTv
+    ? "bg-brand-blue"
+    : isInstagram
+    ? "bg-brand-pink"
+    : "bg-brand-purple";
+
+  const brandCardClass = isBilibili
+    ? "bg-orange-500/10 border-orange-500/20 text-orange-400"
+    : isWeTv
+    ? "bg-brand-blue/10 border-brand-blue/20 text-brand-blue"
+    : isInstagram
+    ? "bg-brand-pink/10 border-brand-pink/20 text-brand-pink"
+    : "bg-brand-purple/10 border-brand-purple/20 text-brand-purple";
+
+  const brandPreviewBtnClass = isBilibili
+    ? "text-orange-400 bg-orange-500/10"
+    : isWeTv
+    ? "text-brand-blue bg-brand-blue/10"
+    : isInstagram
+    ? "text-brand-pink bg-brand-pink/10"
+    : "text-violet-400 bg-violet-500/10";
 
   // Per-video format preview: videoId → formats (null = loading)
   const [previewId] = useState<string | null>(null);
@@ -95,6 +170,11 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       setPlaylistData(null);
       return;
     }
+    if (platform === "bilibili" && !trimmed.includes("bilibili.tv")) {
+      setError("Please enter a valid Bilibili TV series URL (e.g., https://www.bilibili.tv/en/play/...)");
+      setPlaylistData(null);
+      return;
+    }
     if (platform === "instagram" && !trimmed.includes("instagram.com")) {
       setError("Please enter a valid Instagram Profile URL (e.g., https://www.instagram.com/username/)");
       setPlaylistData(null);
@@ -111,7 +191,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       setPlaylistData(null);
       return;
     }
-    if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
+    if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || trimmed.includes("bilibili.tv") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
       setError("Please enter a valid YouTube playlist URL.");
       setPlaylistData(null);
       return;
@@ -138,6 +218,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
           ? err.message 
           : platform === "wetv" 
           ? "Failed to parse WeTV series. Check the URL and try again." 
+          : platform === "bilibili"
+          ? "Failed to parse Bilibili TV series. Check the URL and try again."
           : "Failed to parse playlist. Make sure it is public."
       );
     } finally {
@@ -242,6 +324,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     setSingleDownloadTitle(video.title);
     const isWeTv = platform === "wetv";
     const isInstagram = platform === "instagram";
+    const isBilibili = platform === "bilibili";
+    const forceSse = isWeTv || isBilibili;
     import("@/utils/downloader").then(({ executeDownload }) => {
       executeDownload(
         video.url,
@@ -250,7 +334,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
         video.id,
         (state) => setSingleDownloadState(state),
         size,
-        isInstagram ? false : (isWeTv ? true : needsMerge),
+        isInstagram ? false : (forceSse ? true : needsMerge),
         isAudio
       );
     });
@@ -306,7 +390,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
           const formats = info.formats as VideoFormat[];
           const target = getTargetFormat(formats, qualityPreference);
           chosenItag = target.itag;
-          needsMerge = platform === "wetv" ? true : platform === "instagram" ? false : target.merge;
+          needsMerge = (platform === "wetv" || platform === "bilibili") ? true : platform === "instagram" ? false : target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize = chosenFormat?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, chosenFormat?.height ?? 0, qualityPreference === "audio") : undefined);
@@ -362,7 +446,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       const isMerging = s.phase === "merging";
       const isTransferring = s.phase === "transferring";
       return (
-        <span className="flex items-center gap-1 text-brand-purple text-[10px] font-bold shrink-0">
+        <span className={`flex items-center gap-1 ${brandTextClass} text-[10px] font-bold shrink-0`}>
           {isMerging
             ? <Scissors className="w-3 h-3 text-amber-400 animate-pulse" />
             : <Loader2 className="w-3 h-3 animate-spin" />}
@@ -382,15 +466,18 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
   return (
     <div className="w-full flex flex-col items-center">
       <UrlInput value={url} onChange={setUrl} onSubmit={handleAnalyze}
+        buttonClassName={brandBgClass}
         placeholder={platform === "wetv"
           ? "Paste WeTV Series URL (e.g. https://wetv.vip/en/play/…)"
+          : platform === "bilibili"
+          ? "Paste Bilibili TV Series URL (e.g. https://www.bilibili.tv/en/play/…)"
           : platform === "instagram"
           ? "Paste Instagram Profile URL (e.g. https://www.instagram.com/username/)"
           : "Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"}
         isLoading={isAnalyzing} submitLabel="Extract" />
       {error && (
         <ErrorBanner
-          title={platform === "instagram" ? "Failed to Load Profile" : "Failed to Load Playlist"}
+          title={platform === "instagram" ? "Failed to Load Profile" : platform === "bilibili" ? "Failed to Load Series" : platform === "wetv" ? "Failed to Load Series" : "Failed to Load Playlist"}
           message={error}
         />
       )}
@@ -426,6 +513,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
             title:     modalVideo.title,
             author:    modalVideo.author,
             authorUrl: platform === "wetv"
+              ? modalVideo.url
+              : platform === "bilibili"
               ? modalVideo.url
               : platform === "instagram"
               ? `https://www.instagram.com/${modalVideo.author}/`
@@ -478,7 +567,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                     {/* Quality */}
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <Settings className="w-3.5 h-3.5 text-brand-purple" />Target Quality
+                        <Settings className={`w-3.5 h-3.5 ${brandTextClass}`} />Target Quality
                       </label>
                       <Dropdown<QualityPreference> options={QUALITY_OPTIONS} value={qualityPreference} onChange={setQualityPreference} disabled={isDownloading} />
                       {qualityPreference === "4k" && <p className="text-[10px] text-amber-400/80">4K requires ffmpeg on the server.</p>}
@@ -486,15 +575,15 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                     {/* Quantity */}
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-brand-pink" />Quantity Limit
+                        <ShieldCheck className={`w-3.5 h-3.5 ${brandTextClass}`} />Quantity Limit
                       </label>
                       <input type="number" min="1" max={playlistData.videos.length} value={quantityLimit} disabled={isDownloading}
                         onChange={(e) => handleQuantityChange(e.target.value)} placeholder="No. of videos"
-                        className="w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-pink/50 disabled:opacity-50 transition-colors" />
+                        className={`w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none ${brandFocusBorderClass} disabled:opacity-50 transition-colors`} />
                       <div className="flex flex-wrap gap-1.5">
                         {[5,10,25,50].map((num) => num <= playlistData.videos.length && (
                           <button key={num} type="button" disabled={isDownloading} onClick={() => handleQuantityChange(num.toString())}
-                            className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${quantityLimit === num.toString() ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40" : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"}`}>
+                            className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${quantityLimit === num.toString() ? brandBadgeClass : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"}`}>
                             First {num}
                           </button>
                         ))}
@@ -503,7 +592,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                     {/* Select all */}
                     <div className="flex items-center justify-between text-xs text-zinc-400">
                       <span>{selectedVideos.size} selected</span>
-                      <button disabled={isDownloading} onClick={toggleSelectAll} className="text-brand-purple hover:underline font-semibold disabled:opacity-50 cursor-pointer">
+                      <button disabled={isDownloading} onClick={toggleSelectAll} className={`${brandTextButtonClass} font-semibold disabled:opacity-50 cursor-pointer`}>
                         {selectedVideos.size === playlistData.videos.length ? "Deselect All" : "Select All"}
                       </button>
                     </div>
@@ -526,7 +615,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                   onError={(e) => { e.currentTarget.src = "/logo.png"; }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-4">
-                  <span className="text-[10px] font-bold text-zinc-100 bg-brand-purple px-2 py-0.5 rounded border border-white/5">{playlistData.videoCountText}</span>
+                  <span className={`text-[10px] font-bold text-zinc-100 ${brandBgStaticClass} px-2 py-0.5 rounded border border-white/5`}>{playlistData.videoCountText}</span>
                 </div>
               </div>
               <div>
@@ -536,22 +625,22 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
               <hr className="border-white/5" />
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <Settings className="w-3.5 h-3.5 text-brand-purple" />Target Quality
+                  <Settings className={`w-3.5 h-3.5 ${brandTextClass}`} />Target Quality
                 </label>
                 <Dropdown<QualityPreference> options={QUALITY_OPTIONS} value={qualityPreference} onChange={setQualityPreference} disabled={isDownloading} />
                 {qualityPreference === "4k" && <p className="text-[10px] text-amber-400/80 leading-snug mt-0.5">4K requires ffmpeg installed on the server for audio merging.</p>}
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-brand-pink" />Quantity Limit
+                  <ShieldCheck className={`w-3.5 h-3.5 ${brandTextClass}`} />Quantity Limit
                 </label>
                 <input type="number" min="1" max={playlistData.videos.length} value={quantityLimit} disabled={isDownloading}
                   onChange={(e) => handleQuantityChange(e.target.value)} placeholder="No. of videos"
-                  className="w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none focus:border-brand-pink/50 disabled:opacity-50 transition-colors" />
+                  className={`w-full bg-zinc-950/60 text-xs text-zinc-200 border border-white/10 rounded-xl px-3.5 py-2.5 outline-none ${brandFocusBorderClass} disabled:opacity-50 transition-colors`} />
                 <div className="flex flex-wrap gap-1.5">
                   {[5,10,25,50].map((num) => num <= playlistData.videos.length && (
                     <button key={num} type="button" disabled={isDownloading} onClick={() => handleQuantityChange(num.toString())}
-                      className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${quantityLimit === num.toString() ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40" : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"}`}>
+                      className={`text-[9px] font-bold px-2 py-1 rounded border transition-all cursor-pointer disabled:opacity-50 ${quantityLimit === num.toString() ? brandBadgeClass : "bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 border-white/5"}`}>
                       First {num}
                     </button>
                   ))}
@@ -561,16 +650,16 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
               <div className="flex flex-col gap-3 mt-auto w-full">
                 <div className="flex items-center justify-between text-xs text-zinc-400">
                   <span>{selectedVideos.size} selected</span>
-                  <button disabled={isDownloading} onClick={toggleSelectAll} className="text-brand-purple hover:underline font-semibold disabled:opacity-50 cursor-pointer">
+                  <button disabled={isDownloading} onClick={toggleSelectAll} className={`${brandTextButtonClass} font-semibold disabled:opacity-50 cursor-pointer`}>
                     {selectedVideos.size === playlistData.videos.length ? "Deselect All" : "Select All"}
                   </button>
                 </div>
                 {/* Download button (desktop) */}
                 <button onClick={startDownloadQueue} disabled={isDownloading || selectedVideos.size === 0}
-                  className="w-full flex items-center justify-center gap-2.5 bg-brand-purple hover:bg-purple-600 disabled:bg-purple-900 disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all shadow-lg cursor-pointer">
+                  className={`w-full flex items-center justify-center gap-2.5 ${brandBgClass} disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all shadow-lg cursor-pointer`}>
                   {isDownloading ? (zipStatus === "zipping" ? <><Loader2 className="w-4 h-4 animate-spin" />Creating ZIP…</> : <><Loader2 className="w-4 h-4 animate-spin" />Downloading {currentIndex+1} / {selectedVideos.size}…</>) : <><Download className="w-4 h-4" />Download ZIP ({selectedVideos.size} Item{selectedVideos.size !== 1 ? "s" : ""})</>}
                 </button>
-                {zipStatus === "zipping" && <div className="w-full bg-brand-purple/10 border border-brand-purple/20 p-3 rounded-xl flex flex-col gap-1.5 text-brand-purple"><span className="flex items-center gap-1.5 text-xs font-bold animate-pulse"><Loader2 className="w-3.5 h-3.5 animate-spin" />Compiling ZIP…</span><p className="text-[9px] text-zinc-500">Do not navigate away.</p></div>}
+                {zipStatus === "zipping" && <div className={`w-full ${brandCardClass} p-3 rounded-xl flex flex-col gap-1.5`}><span className="flex items-center gap-1.5 text-xs font-bold animate-pulse"><Loader2 className="w-3.5 h-3.5 animate-spin" />Compiling ZIP…</span><p className="text-[9px] text-zinc-500">Do not navigate away.</p></div>}
                 {zipStatus === "completed" && !isDownloading && <div className="w-full bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex items-start gap-2.5 text-emerald-400"><Check className="w-4 h-4 shrink-0 mt-0.5" /><div className="text-[11px]"><span className="font-bold block">Complete!</span><span className="text-zinc-400">ZIP archive saved.</span></div></div>}
                 {zipStatus === "failed" && !isDownloading && <div className="w-full bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-start gap-2.5 text-red-400"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><div className="text-[11px]"><span className="font-bold block">Failed</span><span className="text-zinc-400">ZIP could not be generated.</span></div></div>}
                 {!isDownloading && Object.keys(queue).length > 0 && (
@@ -597,7 +686,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                       onClick={() => toggleVideo(video.id)}
                       className={`flex items-center gap-3 p-3.5 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}
                     >
-                      <div className="shrink-0 text-brand-purple">
+                      <div className={`shrink-0 ${brandTextClass}`}>
                         {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
                       </div>
                       <div className="relative w-20 aspect-video rounded-lg overflow-hidden border border-white/5 shrink-0">
@@ -608,9 +697,11 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                           className="w-full h-full object-cover"
                           onError={(e) => { e.currentTarget.src = "/logo.png"; }}
                         />
-                        <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded">
-                          {video.durationText || formatDuration(video.duration)}
-                        </div>
+                        {(video.durationText || video.duration > 0) && (
+                          <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[8px] px-1 rounded">
+                            {video.durationText || formatDuration(video.duration)}
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
@@ -623,7 +714,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                             type="button"
                             onClick={(e) => openPreview(video, e)}
                             title="Preview formats"
-                            className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? "text-violet-400 bg-violet-500/10" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.05]"}`}
+                            className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? brandPreviewBtnClass : "text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.05]"}`}
                           >
                             {previewId === video.id ? <X className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
@@ -689,7 +780,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                     onClick={() => toggleVideo(video.id)}
                     className={`flex items-center gap-3 p-3 cursor-pointer transition-all ${selectedVideos.has(video.id) ? "bg-white/[0.03]" : "hover:bg-white/[0.02]"}`}
                   >
-                    <div className="shrink-0 text-brand-purple">
+                    <div className={`shrink-0 ${brandTextClass}`}>
                       {selectedVideos.has(video.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-zinc-600" />}
                     </div>
                     <div className="relative w-16 aspect-video rounded-md overflow-hidden border border-white/5 shrink-0">
@@ -700,9 +791,11 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                         className="w-full h-full object-cover"
                         onError={(e) => { e.currentTarget.src = "/logo.png"; }}
                       />
-                      <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[7px] px-1 rounded">
-                        {video.durationText || formatDuration(video.duration)}
-                      </div>
+                      {(video.durationText || video.duration > 0) && (
+                        <div className="absolute bottom-0.5 right-0.5 bg-black/80 text-[7px] px-1 rounded">
+                          {video.durationText || formatDuration(video.duration)}
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] font-semibold text-zinc-200 line-clamp-2 leading-snug">{video.title}</p>
@@ -714,7 +807,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                         <button
                           type="button"
                           onClick={(e) => openPreview(video, e)}
-                          className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? "text-violet-400 bg-violet-500/10" : "text-zinc-600 hover:text-zinc-300"}`}
+                          className={`p-1 rounded-lg transition-colors cursor-pointer ${previewId === video.id ? brandPreviewBtnClass : "text-zinc-600 hover:text-zinc-300"}`}
                         >
                           {previewId === video.id ? <X className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
@@ -769,7 +862,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
             <div className="glass-panel rounded-2xl border border-white/10 p-3 shadow-2xl shadow-black/60 flex flex-col gap-2">
               {/* Status banners */}
               {zipStatus === "zipping" && (
-                <div className="flex items-center gap-2 text-brand-purple text-xs font-bold animate-pulse">
+                <div className={`flex items-center gap-2 ${brandTextClass} text-xs font-bold animate-pulse`}>
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />Compiling ZIP archive…
                 </div>
               )}
@@ -791,7 +884,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
                   </button>
                 ) : (
                   <button onClick={startDownloadQueue} disabled={isDownloading || selectedVideos.size === 0}
-                    className="flex-1 flex items-center justify-center gap-2 bg-brand-purple hover:bg-purple-600 disabled:bg-purple-900 disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all shadow-lg cursor-pointer">
+                    className={`flex-1 flex items-center justify-center gap-2 ${brandBgClass} disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all shadow-lg cursor-pointer`}>
                     {isDownloading
                       ? (zipStatus === "zipping"
                           ? <><Loader2 className="w-4 h-4 animate-spin" />Creating ZIP…</>

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(imageUrl);
 
     // Validate the image URL to prevent SSRF
-    const allowedDomains = ["cdninstagram.com", "fbcdn.net", "instagram.com"];
+    const allowedDomains = ["cdninstagram.com", "fbcdn.net", "instagram.com", "bstarstatic.com", "bilibili.tv"];
     try {
       const parsed = new URL(decodedUrl);
       const isAllowed = allowedDomains.some(
