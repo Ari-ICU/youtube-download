@@ -4,6 +4,7 @@ import { mkdtemp, rm, stat } from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
 
 const execFileAsync = promisify(execFile);
 const YTDLP = "yt-dlp";
@@ -59,12 +60,23 @@ async function buildMergedClip(
 ): Promise<{ nodeStream: ReturnType<typeof createReadStream>; size: number }> {
   const outPath = join(tmpDir, "preview.mp4");
 
+  const recodeArgs: string[] = [];
+  const hasVtb = await checkHevcVideotoolbox();
+  if (hasVtb) {
+    recodeArgs.push(
+      "--recode-video", "mp4",
+      "--postprocessor-args", "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
+    );
+  } else {
+    recodeArgs.push("--merge-output-format", "mp4");
+  }
+
   await new Promise<void>((resolve, reject) => {
     const args = [
       ...getYtDlpArgs(),
       "--no-playlist",
       "-f", formatSelector,
-      "--merge-output-format", "mp4",
+      ...recodeArgs,
       "-o", outPath,
       "--no-part",
     ];

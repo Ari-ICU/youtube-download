@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "fs/promises";
 import { createReadStream, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
 
 const YTDLP = "yt-dlp";
 
@@ -158,13 +159,26 @@ export async function GET(request: Request) {
           `best`;
       }
 
+      const recodeArgs: string[] = [];
+      if (!isWeTvUrl && !isInstagramUrl) {
+        const hasVtb = await checkHevcVideotoolbox();
+        if (hasVtb) {
+          recodeArgs.push(
+            "--recode-video", "mp4",
+            "--postprocessor-args", "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
+          );
+        } else {
+          recodeArgs.push("--merge-output-format", "mp4");
+        }
+      }
+
       const ytdlpArgs = [
         ...getYtDlpArgs(),
         "--no-playlist",
         "-f", formatSelector,
-        "--merge-output-format", "mp4",
         // For Instagram, recode to H.264 to guarantee QuickTime compatibility
         ...(isInstagramUrl ? ["--recode-video", "mp4", "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart"] : []),
+        ...recodeArgs,
         "-o", outPath,
         "--no-part",
         decodedUrl,

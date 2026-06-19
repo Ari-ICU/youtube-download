@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { randomUUID } from "crypto";
+import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
 
 const YTDLP = "yt-dlp";
 
@@ -241,7 +242,17 @@ export async function GET(request: Request) {
             `${formatId}+bestaudio/` +
             `bestvideo+bestaudio[ext=m4a]/` +
             `bestvideo+bestaudio/best`;
-          ytArgs.push("-f", formatSelector, "--merge-output-format", "mp4");
+          ytArgs.push("-f", formatSelector);
+
+          const hasVtb = await checkHevcVideotoolbox();
+          if (hasVtb) {
+            ytArgs.push(
+              "--recode-video", "mp4",
+              "--postprocessor-args", "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
+            );
+          } else {
+            ytArgs.push("--merge-output-format", "mp4");
+          }
         } else {
           ytArgs.push("-f", formatId);
         }
