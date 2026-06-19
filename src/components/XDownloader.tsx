@@ -18,14 +18,16 @@ const getProxyUrl = (url?: string) => {
     url.includes("cdninstagram.com") ||
     url.includes("instagram.com") ||
     url.includes("bstarstatic.com") ||
-    url.includes("bilibili.tv")
+    url.includes("bilibili.tv") ||
+    url.includes("twimg.com") ||
+    url.includes("pbs.twimg.com")
   ) {
     return `/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
 };
 
-export default function BilibiliDownloader() {
+export default function XDownloader() {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -42,13 +44,15 @@ export default function BilibiliDownloader() {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
 
-    const isBilibiliTv =
-      trimmedUrl.includes("bilibili.tv") ||
-      trimmedUrl.includes("www.bilibili.tv");
+    const isXUrl =
+      trimmedUrl.includes("x.com") ||
+      trimmedUrl.includes("twitter.com") ||
+      trimmedUrl.includes("www.x.com") ||
+      trimmedUrl.includes("www.twitter.com");
 
-    if (!isBilibiliTv) {
+    if (!isXUrl) {
       setError(
-        "Please enter a valid Bilibili TV URL (e.g. https://www.bilibili.tv/en/video/...)"
+        "Please enter a valid X (Twitter) video URL (e.g. https://x.com/username/status/...)"
       );
       setData(null);
       return;
@@ -62,7 +66,7 @@ export default function BilibiliDownloader() {
     try {
       const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to analyze Bilibili TV URL");
+      if (!res.ok) throw new Error(json.error ?? "Failed to analyze X video URL");
       setData(json);
     } catch (err: unknown) {
       setError(
@@ -88,9 +92,8 @@ export default function BilibiliDownloader() {
 
     setDownloadTitle(data.details.title);
 
-    // Bilibili TV uses HLS streams — always force SSE/temp-file mode so yt-dlp
-    // can download the fragments, then ffmpeg remuxes to a seekable .mp4 before
-    // streaming to the browser.
+    // X/Twitter uses HLS streams natively — we must force SSE/temp-file mode
+    // to assemble fragments properly via ffmpeg before saving.
     executeDownload(
       url,
       itag,
@@ -109,15 +112,17 @@ export default function BilibiliDownloader() {
 
   return (
     <div className="w-full flex flex-col items-center">
-      <UrlInput
-        value={url}
-        onChange={setUrl}
-        onSubmit={handleAnalyze}
-        placeholder="Paste Bilibili TV URL (e.g. https://www.bilibili.tv/en/video/…)"
-        isLoading={isAnalyzing}
-        submitLabel="Analyze"
-        buttonClassName="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-950"
-      />
+      <div className="w-full mt-4">
+        <UrlInput
+          value={url}
+          onChange={setUrl}
+          onSubmit={handleAnalyze}
+          placeholder="Paste X/Twitter video URL (e.g. https://x.com/username/status/…)"
+          isLoading={isAnalyzing}
+          submitLabel="Analyze"
+          buttonClassName="bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 border border-zinc-700 text-zinc-100"
+        />
+      </div>
 
       {error && <ErrorBanner title="Failed to Load Content" message={error} />}
 
@@ -146,10 +151,12 @@ export default function BilibiliDownloader() {
                   className="w-full h-full object-cover"
                   onError={(e) => { e.currentTarget.src = "/logo.png"; }}
                 />
-                <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-[10px] font-bold text-zinc-100 backdrop-blur-sm flex items-center gap-1 border border-white/5">
-                  <Clock className="w-3 h-3 text-zinc-400" />
-                  {formatDuration(data.details.duration)}
-                </div>
+                {data.details.duration > 0 && (
+                  <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-[10px] font-bold text-zinc-100 backdrop-blur-sm flex items-center gap-1 border border-white/5">
+                    <Clock className="w-3 h-3 text-zinc-400" />
+                    {formatDuration(data.details.duration)}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -157,7 +164,7 @@ export default function BilibiliDownloader() {
                   {data.details.title}
                 </h2>
                 <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-zinc-400">
-                  <span className="font-semibold text-orange-400 flex items-center gap-1 shrink-0">
+                  <span className="font-semibold text-zinc-300 flex items-center gap-1 shrink-0">
                     {data.details.author}
                   </span>
                   {data.details.views > 0 && (
@@ -172,7 +179,7 @@ export default function BilibiliDownloader() {
               {/* Stats strip */}
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {[
-                  { label: "Duration", value: formatDuration(data.details.duration) },
+                  { label: "Duration", value: data.details.duration > 0 ? formatDuration(data.details.duration) : "—" },
                   { label: "Formats",  value: String(data.formats.length) },
                   { label: "Best",     value: data.formats.find((f) => f.hasVideo)?.qualityLabel ?? "—" },
                 ].map(({ label, value }) => (

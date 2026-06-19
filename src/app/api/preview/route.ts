@@ -34,6 +34,9 @@ const ALLOWED_HOSTS = [
   "m.youtube.com", "music.youtube.com",
   "wetv.vip", "www.wetv.vip",
   "instagram.com", "www.instagram.com",
+  "bilibili.tv", "www.bilibili.tv",
+  "x.com", "www.x.com",
+  "twitter.com", "www.twitter.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -143,7 +146,7 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(url);
 
     if (!isAllowedUrl(decodedUrl)) {
-      return Response.json({ error: "Only YouTube, WeTV, and Instagram URLs are supported." }, { status: 400 });
+      return Response.json({ error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." }, { status: 400 });
     }
 
     if (!FORMAT_ID_RE.test(formatId)) {

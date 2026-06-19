@@ -42,7 +42,7 @@ const getProxyUrl = (url?: string) => {
 };
 
 interface PlaylistDownloaderProps {
-  platform?: "youtube" | "wetv" | "instagram" | "bilibili";
+  platform?: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
 }
 
 export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDownloaderProps) {
@@ -65,6 +65,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
   const isBilibili = platform === "bilibili";
   const isWeTv = platform === "wetv";
   const isInstagram = platform === "instagram";
+  const isX = platform === "x";
 
   const brandTextClass = isBilibili
     ? "text-orange-400"
@@ -72,6 +73,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "text-brand-blue"
     : isInstagram
     ? "text-brand-pink"
+    : isX
+    ? "text-zinc-300"
     : "text-brand-purple";
 
   const brandBgClass = isBilibili
@@ -80,6 +83,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "bg-brand-blue hover:bg-blue-600 disabled:bg-blue-900"
     : isInstagram
     ? "bg-brand-pink hover:bg-pink-600 disabled:bg-pink-900"
+    : isX
+    ? "bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 border border-zinc-700"
     : "bg-brand-purple hover:bg-purple-600 disabled:bg-purple-900";
 
   const brandTextButtonClass = isBilibili
@@ -88,6 +93,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "text-brand-blue hover:underline"
     : isInstagram
     ? "text-brand-pink hover:underline"
+    : isX
+    ? "text-zinc-300 hover:underline"
     : "text-brand-purple hover:underline";
 
   const brandFocusBorderClass = isBilibili
@@ -96,6 +103,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "focus:border-brand-blue/50"
     : isInstagram
     ? "focus:border-brand-pink/50"
+    : isX
+    ? "focus:border-zinc-700/50"
     : "focus:border-brand-purple/50";
 
   const brandBadgeClass = isBilibili
@@ -104,6 +113,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "bg-brand-blue/20 text-brand-blue border-brand-blue/40"
     : isInstagram
     ? "bg-brand-pink/20 text-brand-pink border-brand-pink/40"
+    : isX
+    ? "bg-zinc-800/40 text-zinc-300 border-zinc-700/40"
     : "bg-brand-purple/20 text-brand-purple border-brand-purple/40";
 
   const brandBgStaticClass = isBilibili
@@ -112,6 +123,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "bg-brand-blue"
     : isInstagram
     ? "bg-brand-pink"
+    : isX
+    ? "bg-zinc-800"
     : "bg-brand-purple";
 
   const brandCardClass = isBilibili
@@ -120,6 +133,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "bg-brand-blue/10 border-brand-blue/20 text-brand-blue"
     : isInstagram
     ? "bg-brand-pink/10 border-brand-pink/20 text-brand-pink"
+    : isX
+    ? "bg-zinc-900/40 border-zinc-800/60 text-zinc-300"
     : "bg-brand-purple/10 border-brand-purple/20 text-brand-purple";
 
   const brandPreviewBtnClass = isBilibili
@@ -128,6 +143,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     ? "text-brand-blue bg-brand-blue/10"
     : isInstagram
     ? "text-brand-pink bg-brand-pink/10"
+    : isX
+    ? "text-zinc-300 bg-zinc-800/20"
     : "text-violet-400 bg-violet-500/10";
 
   // Per-video format preview: videoId → formats (null = loading)
@@ -191,7 +208,12 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       setPlaylistData(null);
       return;
     }
-    if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || trimmed.includes("bilibili.tv") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
+    if (platform === "x" && !trimmed.includes("x.com") && !trimmed.includes("twitter.com")) {
+      setError("Please enter a valid X (Twitter) profile URL (e.g., https://x.com/username/)");
+      setPlaylistData(null);
+      return;
+    }
+    if (platform === "youtube" && (trimmed.includes("wetv.vip") || trimmed.includes("instagram.com") || trimmed.includes("bilibili.tv") || trimmed.includes("x.com") || trimmed.includes("twitter.com") || (!trimmed.includes("youtube.com") && !trimmed.includes("youtu.be")))) {
       setError("Please enter a valid YouTube playlist URL.");
       setPlaylistData(null);
       return;
@@ -390,7 +412,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
           const formats = info.formats as VideoFormat[];
           const target = getTargetFormat(formats, qualityPreference);
           chosenItag = target.itag;
-          needsMerge = (platform === "wetv" || platform === "bilibili") ? true : platform === "instagram" ? false : target.merge;
+          needsMerge = (platform === "wetv" || platform === "bilibili" || platform === "x") ? true : platform === "instagram" ? false : target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize = chosenFormat?.contentLength ?? (video.duration > 0 ? estimateSize(video.duration, chosenFormat?.height ?? 0, qualityPreference === "audio") : undefined);
@@ -473,11 +495,13 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
           ? "Paste Bilibili TV Series URL (e.g. https://www.bilibili.tv/en/play/…)"
           : platform === "instagram"
           ? "Paste Instagram Profile URL (e.g. https://www.instagram.com/username/)"
+          : platform === "x"
+          ? "Paste X (Twitter) Profile URL (e.g. https://x.com/username)"
           : "Paste Playlist URL (e.g. https://www.youtube.com/playlist?list=…)"}
         isLoading={isAnalyzing} submitLabel="Extract" />
       {error && (
         <ErrorBanner
-          title={platform === "instagram" ? "Failed to Load Profile" : platform === "bilibili" ? "Failed to Load Series" : platform === "wetv" ? "Failed to Load Series" : "Failed to Load Playlist"}
+          title={platform === "instagram" ? "Failed to Load Profile" : platform === "x" ? "Failed to Load Profile" : platform === "bilibili" ? "Failed to Load Series" : platform === "wetv" ? "Failed to Load Series" : "Failed to Load Playlist"}
           message={error}
         />
       )}
@@ -518,6 +542,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
               ? modalVideo.url
               : platform === "instagram"
               ? `https://www.instagram.com/${modalVideo.author}/`
+              : platform === "x"
+              ? `https://x.com/${modalVideo.author.replace("@", "")}`
               : `https://www.youtube.com/channel/${modalVideo.author}`,
             thumbnail: getProxyUrl(modalVideo.thumbnail),
             duration:  modalVideo.duration,

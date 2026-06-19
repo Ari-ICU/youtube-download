@@ -86,6 +86,8 @@ const ALLOWED_HOSTS = [
   "wetv.vip", "www.wetv.vip",
   "instagram.com", "www.instagram.com",
   "bilibili.tv", "www.bilibili.tv",
+  "x.com", "www.x.com",
+  "twitter.com", "www.twitter.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -184,7 +186,7 @@ export async function GET(request: Request) {
   const decodedUrl = decodeURIComponent(url);
 
   if (!isAllowedUrl(decodedUrl)) {
-    return new Response("Only YouTube, WeTV, Instagram, and Bilibili TV URLs are supported.", { status: 400 });
+    return new Response("Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported.", { status: 400 });
   }
 
   if (!FORMAT_ID_RE.test(formatId)) {
@@ -229,6 +231,7 @@ export async function GET(request: Request) {
         const isWeTvUrl = decodedUrl.includes("wetv.vip");
         const isInstagramUrl = decodedUrl.includes("instagram.com");
         const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
+        const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
 
         if (isInstagramUrl && !isAudioOnly) {
           // Instagram: always merge + recode to H.264/AAC for QuickTime compatibility
@@ -244,7 +247,7 @@ export async function GET(request: Request) {
             "--recode-video", "mp4",
             "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
           );
-        } else if (merge && !isWeTvUrl && !isBilibiliUrl) {
+        } else if (merge && !isWeTvUrl && !isBilibiliUrl && !isXUrl) {
           const formatSelector =
             `${formatId}+bestaudio[ext=m4a]/` +
             `${formatId}+bestaudio/` +

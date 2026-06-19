@@ -6,7 +6,7 @@ import type { ActiveTab } from "@/types";
 interface TabsProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
-  platform: "youtube" | "wetv" | "instagram" | "bilibili";
+  platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
 }
 
 const TABS: { id: ActiveTab; label: string; shortLabel: string; Icon: React.ElementType }[] = [
@@ -37,6 +37,13 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
         shortLabel: tab.id === "single" ? "Video" : "Series",
       };
     }
+    if (platform === "x") {
+      return {
+        ...tab,
+        label: tab.id === "single" ? "Single Video" : "Profile Extractor",
+        shortLabel: tab.id === "single" ? "Single" : "Profile",
+      };
+    }
     return tab;
   });
 
@@ -48,6 +55,8 @@ export default function Tabs({ activeTab, setActiveTab, platform }: TabsProps) {
         return "bg-brand-blue text-white shadow-[0_0_15px_rgba(59,130,246,0.4)]";
       case "instagram":
         return "bg-brand-pink text-white shadow-[0_0_15px_rgba(236,72,153,0.4)]";
+      case "x":
+        return "bg-zinc-800 text-white shadow-[0_0_15px_rgba(255,255,255,0.1)] border border-zinc-700/50";
       default:
         return "bg-brand-purple text-white shadow-[0_0_15px_rgba(139,92,246,0.4)]";
     }

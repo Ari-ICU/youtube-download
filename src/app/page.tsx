@@ -12,17 +12,18 @@ import PlaylistDownloader from "@/components/PlaylistDownloader";
 import WeTVDownloader from "@/components/WeTVDownloader";
 import InstagramDownloader from "@/components/InstagramDownloader";
 import BilibiliDownloader from "@/components/BilibiliDownloader";
+import XDownloader from "@/components/XDownloader";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
   // Start with defaults so SSR and client initial render match (no hydration mismatch)
-  const [platform, setPlatformState] = useState<"youtube" | "wetv" | "instagram" | "bilibili">("youtube");
+  const [platform, setPlatformState] = useState<"youtube" | "wetv" | "instagram" | "bilibili" | "x">("youtube");
   const [activeTab, setActiveTabState] = useState<ActiveTab>("single");
 
   // After mount, restore the last-used tab from localStorage
   useEffect(() => {
     const savedPlatform = localStorage.getItem("anivora-platform");
-    if (savedPlatform === "youtube" || savedPlatform === "wetv" || savedPlatform === "instagram" || savedPlatform === "bilibili") {
+    if (savedPlatform === "youtube" || savedPlatform === "wetv" || savedPlatform === "instagram" || savedPlatform === "bilibili" || savedPlatform === "x") {
       setPlatformState(savedPlatform);
     }
     const savedTab = localStorage.getItem("anivora-active-tab");
@@ -31,7 +32,7 @@ export default function Home() {
     }
   }, []);
 
-  const setPlatform = (p: "youtube" | "wetv" | "instagram" | "bilibili") => {
+  const setPlatform = (p: "youtube" | "wetv" | "instagram" | "bilibili" | "x") => {
     localStorage.setItem("anivora-platform", p);
     setPlatformState(p);
   };
@@ -177,6 +178,32 @@ export default function Home() {
                 className="w-full"
               >
                 <PlaylistDownloader platform="bilibili" />
+              </motion.div>
+            )}
+
+            {platform === "x" && activeTab === "single" && (
+              <motion.div
+                key="x-single-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <XDownloader />
+              </motion.div>
+            )}
+
+            {platform === "x" && activeTab === "playlist" && (
+              <motion.div
+                key="x-playlist-tab"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35 }}
+                className="w-full"
+              >
+                <PlaylistDownloader platform="x" />
               </motion.div>
             )}
           </AnimatePresence>

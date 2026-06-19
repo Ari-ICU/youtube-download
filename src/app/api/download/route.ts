@@ -47,6 +47,10 @@ const ALLOWED_HOSTS = [
   "www.instagram.com",
   "bilibili.tv",
   "www.bilibili.tv",
+  "x.com",
+  "www.x.com",
+  "twitter.com",
+  "www.twitter.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -92,7 +96,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return new Response(
-        JSON.stringify({ error: "Only YouTube, WeTV, Instagram, and Bilibili TV URLs are supported." }),
+        JSON.stringify({ error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -146,9 +150,10 @@ export async function GET(request: Request) {
       const isWeTvUrl = decodedUrl.includes("wetv.vip");
       const isInstagramUrl = decodedUrl.includes("instagram.com");
       const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
+      const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
 
       let formatSelector: string;
-      if (isWeTvUrl || isBilibiliUrl) {
+      if (isWeTvUrl || isBilibiliUrl || isXUrl) {
         // HLS sites: format ID is the full stream selector, no merge needed
         formatSelector = formatId;
       } else if (isInstagramUrl) {
@@ -170,7 +175,7 @@ export async function GET(request: Request) {
       }
 
       const recodeArgs: string[] = [];
-      if (!isWeTvUrl && !isInstagramUrl && !isBilibiliUrl) {
+      if (!isWeTvUrl && !isInstagramUrl && !isBilibiliUrl && !isXUrl) {
         const hasVtb = await checkHevcVideotoolbox();
         if (hasVtb) {
           recodeArgs.push(

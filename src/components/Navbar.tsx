@@ -5,8 +5,21 @@ import { Play, Tv, Camera, Film } from "lucide-react";
 import Image from "next/image";
 
 interface NavbarProps {
-  platform: "youtube" | "wetv" | "instagram" | "bilibili";
-  setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili") => void;
+  platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
+  setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x") => void;
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
 }
 
 const platforms = [
@@ -37,6 +50,13 @@ const platforms = [
     icon: Film,
     activeClass:
       "bg-orange-600/20 text-orange-400 border border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.15)]",
+  },
+  {
+    id: "x" as const,
+    label: "X (Twitter)",
+    icon: XIcon,
+    activeClass:
+      "bg-zinc-800/40 text-zinc-200 border border-zinc-700/50 shadow-[0_0_15px_rgba(255,255,255,0.08)]",
   },
 ];
 
@@ -79,7 +99,7 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
               <span className="hidden sm:inline">{label}</span>
               {/* Short label for xs screens */}
               <span className="inline sm:hidden">
-                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : "BB"}
+                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : id === "bilibili" ? "BB" : "X"}
               </span>
             </motion.button>
           ))}

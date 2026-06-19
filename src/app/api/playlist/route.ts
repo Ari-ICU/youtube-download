@@ -45,6 +45,10 @@ const ALLOWED_HOSTS = [
   "www.instagram.com",
   "bilibili.tv",
   "www.bilibili.tv",
+  "x.com",
+  "www.x.com",
+  "twitter.com",
+  "www.twitter.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -99,7 +103,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return NextResponse.json(
-        { error: "Only YouTube, WeTV, and Instagram URLs are supported." },
+        { error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." },
         { status: 400 }
       );
     }
@@ -274,6 +278,75 @@ export async function GET(request: Request) {
           }
         } catch (err: unknown) {
           console.error("Instagram profile API error:", err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+
+    const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
+    const isXProfile = isXUrl && !decodedUrl.includes("/status/");
+
+    if (isXProfile) {
+      let username = "";
+      try {
+        const parsed = new URL(decodedUrl);
+        username = parsed.pathname.split("/").filter(Boolean)[0] || "";
+      } catch {
+        return NextResponse.json({ error: "Invalid X Profile URL." }, { status: 400 });
+      }
+
+      if (username) {
+        try {
+          const stdout = await runYtDlp([
+            ...buildYtDlpArgs(decodedUrl),
+            "--flat-playlist",
+            "--dump-single-json",
+            decodedUrl,
+          ]);
+
+          const info = JSON.parse(stdout);
+          const entries: any[] = info.entries ?? [];
+          const playlistThumb = info.thumbnail ?? (entries[0]?.thumbnail ?? "");
+
+          const videos = entries.map((e, index) => {
+            const id = e.id ?? `video-${index + 1}`;
+            
+            const formats = e.formats ?? [];
+            const formatsWithVideo = formats.filter((f: any) => f.vcodec !== "none" && (f.height ?? 0) > 0);
+            const bestFormat = formatsWithVideo.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0]
+              || formats.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0];
+            const videoUrl = bestFormat?.url ?? e.url ?? e.webpage_url ?? `https://x.com/i/status/${id}`;
+
+            const videoTitle = e.title ?? `X Video ${index + 1}`;
+            const thumb = e.thumbnail ?? playlistThumb ?? "";
+
+            return {
+              id,
+              title: videoTitle,
+              thumbnail: thumb,
+              duration: Math.round(e.duration ?? 0),
+              durationText: e.duration_string ?? (e.duration ? `${Math.floor(e.duration / 60)}:${String(Math.round(e.duration % 60)).padStart(2, "0")}` : ""),
+              author: info.title ?? info.id ?? `@${username}`,
+              url: videoUrl,
+              index,
+            };
+          });
+
+          const playlist = {
+            id: info.id ?? username,
+            title: info.title ?? `@${username} on X`,
+            author: info.uploader ?? info.id ?? username,
+            videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
+            thumbnail: playlistThumb,
+            videos,
+          };
+
+          return NextResponse.json({ playlist });
+        } catch (err: unknown) {
+          console.error("X profile parse error:", err instanceof Error ? err.message : String(err));
+          return NextResponse.json(
+            { error: "Failed to scrape X profile. Make sure the profile is public and has videos." },
+            { status: 500 }
+          );
         }
       }
     }

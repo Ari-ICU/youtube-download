@@ -58,6 +58,10 @@ const ALLOWED_HOSTS = [
   "www.instagram.com",
   "bilibili.tv",
   "www.bilibili.tv",
+  "x.com",
+  "www.x.com",
+  "twitter.com",
+  "www.twitter.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -193,7 +197,8 @@ export async function GET(request: Request) {
 
     const isWeTvUrl = decodedUrl.includes("wetv.vip");
     const isBilibiliTvUrl = decodedUrl.includes("bilibili.tv");
-    const isHlsSite = isWeTvUrl || isBilibiliTvUrl;
+    const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
+    const isHlsSite = isWeTvUrl || isBilibiliTvUrl || isXUrl;
 
     const mapped: MappedFormat[] = rawFormats
       .filter((f) => {
