@@ -13,6 +13,7 @@ import WeTVDownloader from "@/components/WeTVDownloader";
 import InstagramDownloader from "@/components/InstagramDownloader";
 import BilibiliDownloader from "@/components/BilibiliDownloader";
 import XDownloader from "@/components/XDownloader";
+import CookieModal from "@/components/ui/CookieModal";
 import type { ActiveTab } from "@/types";
 
 export default function Home() {
@@ -20,6 +21,7 @@ export default function Home() {
   const [platform, setPlatformState] = useState<"youtube" | "wetv" | "instagram" | "bilibili" | "x">("youtube");
   const [activeTab, setActiveTabState] = useState<ActiveTab>("single");
   const [bypassGlobal, setBypassGlobalState] = useState(false);
+  const [isCookiesOpen, setIsCookiesOpen] = useState(false);
 
   // After mount, restore the last-used tab and bypass global state from localStorage
   useEffect(() => {
@@ -54,7 +56,13 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center">
-      <Navbar platform={platform} setPlatform={setPlatform} bypassGlobal={bypassGlobal} setBypassGlobal={setBypassGlobal} />
+      <Navbar
+        platform={platform}
+        setPlatform={setPlatform}
+        bypassGlobal={bypassGlobal}
+        setBypassGlobal={setBypassGlobal}
+        onOpenCookies={() => setIsCookiesOpen(true)}
+      />
 
       {/* JSON-LD */}
       <script
@@ -221,6 +229,8 @@ export default function Home() {
 
         <Footer />
       </div>
+
+      <CookieModal isOpen={isCookiesOpen} onClose={() => setIsCookiesOpen(false)} />
     </div>
   );
 }

@@ -46,17 +46,22 @@ export async function POST(request: Request) {
 
     const text = await file.text();
 
-    // Validate it looks like a Netscape cookie file
-    if (
-      !text.includes("bilibili.tv") &&
-      !text.startsWith("# Netscape HTTP Cookie File") &&
-      !text.startsWith("# HTTP Cookie File")
-    ) {
+    // Validate it looks like a Netscape cookie file or has supported domains
+    const isNetscape = text.startsWith("# Netscape HTTP Cookie File") || text.startsWith("# HTTP Cookie File");
+    const hasSupportedDomain =
+      text.includes("bilibili.tv") ||
+      text.includes("wetv.vip") ||
+      text.includes("youtube.com") ||
+      text.includes("instagram.com") ||
+      text.includes("x.com") ||
+      text.includes("twitter.com");
+
+    if (!isNetscape && !hasSupportedDomain) {
       return NextResponse.json(
         {
           error:
-            "This doesn't look like a Bilibili TV cookies file. " +
-            "Make sure you export cookies while on bilibili.tv.",
+            "This doesn't look like a valid Netscape cookie file. " +
+            "Make sure you export cookies in Netscape format from a supported platform (WeTV, Bilibili, YouTube, etc.).",
         },
         { status: 400 }
       );

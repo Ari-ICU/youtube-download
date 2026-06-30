@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe, Play, Tv, Camera, Film } from "lucide-react";
+import { Globe, Key, Play, Tv, Camera, Film } from "lucide-react";
 import Image from "next/image";
 
 interface NavbarProps {
@@ -9,6 +9,7 @@ interface NavbarProps {
   setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x") => void;
   bypassGlobal: boolean;
   setBypassGlobal: (bypassGlobal: boolean) => void;
+  onOpenCookies: () => void;
 }
 
 function XIcon({ className }: { className?: string }) {
@@ -62,7 +63,7 @@ const platforms = [
   },
 ];
 
-export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassGlobal }: NavbarProps) {
+export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassGlobal, onOpenCookies }: NavbarProps) {
   return (
     <nav className="sticky top-0 z-50 w-full backdrop-blur-md bg-zinc-950/40 border-b border-white/5 px-3 py-2.5 sm:px-6 sm:py-3">
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
@@ -123,6 +124,17 @@ export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassG
             <Globe className={`w-3.5 h-3.5 shrink-0 ${bypassGlobal ? "animate-pulse text-emerald-400" : "text-zinc-500"}`} />
             <span className="hidden xs:inline">Bypass Global</span>
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${bypassGlobal ? "bg-emerald-400 shadow-[0_0_8px_#10b981]" : "bg-zinc-600"}`} />
+          </motion.button>
+
+          {/* Cookies Settings Button */}
+          <motion.button
+            onClick={onOpenCookies}
+            whileTap={{ scale: 0.95 }}
+            className="relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 border bg-zinc-950/80 text-zinc-500 border-white/5 hover:text-zinc-300 hover:border-zinc-800 hover:bg-zinc-900/60 cursor-pointer"
+            title="Manage cookies.txt to authenticate and download VIP content"
+          >
+            <Key className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
+            <span className="hidden xs:inline">VIP Cookies</span>
           </motion.button>
         </div>
 
