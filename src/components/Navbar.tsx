@@ -1,12 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Play, Tv, Camera, Film } from "lucide-react";
+import { Globe, Play, Tv, Camera, Film } from "lucide-react";
 import Image from "next/image";
 
 interface NavbarProps {
   platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
   setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x") => void;
+  bypassGlobal: boolean;
+  setBypassGlobal: (bypassGlobal: boolean) => void;
 }
 
 function XIcon({ className }: { className?: string }) {
@@ -60,7 +62,7 @@ const platforms = [
   },
 ];
 
-export default function Navbar({ platform, setPlatform }: NavbarProps) {
+export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassGlobal }: NavbarProps) {
   return (
     <nav className="sticky top-0 z-50 w-full backdrop-blur-md bg-zinc-950/40 border-b border-white/5 px-3 py-2.5 sm:px-6 sm:py-3">
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
@@ -81,28 +83,47 @@ export default function Navbar({ platform, setPlatform }: NavbarProps) {
           </span>
         </div>
 
-        {/* Platform Selector Buttons */}
-        <div className="flex items-center gap-1 bg-zinc-950/80 p-0.5 rounded-xl border border-white/5">
-          {platforms.map(({ id, label, icon: Icon, activeClass }) => (
-            <motion.button
-              key={id}
-              onClick={() => setPlatform(id)}
-              whileTap={{ scale: 0.94 }}
-              className={`relative flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
-                platform === id
-                  ? activeClass
-                  : "text-zinc-500 hover:text-zinc-300 border border-transparent"
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              {/* Label: hidden on very small screens, visible on sm+ */}
-              <span className="hidden sm:inline">{label}</span>
-              {/* Short label for xs screens */}
-              <span className="inline sm:hidden">
-                {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : id === "bilibili" ? "BB" : "X"}
-              </span>
-            </motion.button>
-          ))}
+        {/* Action Group */}
+        <div className="flex items-center gap-2">
+          {/* Platform Selector Buttons */}
+          <div className="flex items-center gap-1 bg-zinc-950/80 p-0.5 rounded-xl border border-white/5">
+            {platforms.map(({ id, label, icon: Icon, activeClass }) => (
+              <motion.button
+                key={id}
+                onClick={() => setPlatform(id)}
+                whileTap={{ scale: 0.94 }}
+                className={`relative flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
+                  platform === id
+                    ? activeClass
+                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                {/* Label: hidden on very small screens, visible on sm+ */}
+                <span className="hidden sm:inline">{label}</span>
+                {/* Short label for xs screens */}
+                <span className="inline sm:hidden">
+                  {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : id === "bilibili" ? "BB" : "X"}
+                </span>
+              </motion.button>
+            ))}
+          </div>
+
+          {/* Bypass Global Toggle */}
+          <motion.button
+            onClick={() => setBypassGlobal(!bypassGlobal)}
+            whileTap={{ scale: 0.95 }}
+            className={`relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 border cursor-pointer ${
+              bypassGlobal
+                ? "bg-emerald-600/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.08)]"
+                : "bg-zinc-950/80 text-zinc-500 border-white/5 hover:text-zinc-300 hover:border-zinc-800"
+            }`}
+            title="Bypass Global Play restrictions (Spoofs location via TH/SG proxy headers)"
+          >
+            <Globe className={`w-3.5 h-3.5 shrink-0 ${bypassGlobal ? "animate-pulse text-emerald-400" : "text-zinc-500"}`} />
+            <span className="hidden xs:inline">Bypass Global</span>
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${bypassGlobal ? "bg-emerald-400 shadow-[0_0_8px_#10b981]" : "bg-zinc-600"}`} />
+          </motion.button>
         </div>
 
       </div>

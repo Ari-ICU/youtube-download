@@ -19,7 +19,7 @@ const getProxyUrl = (url?: string) => {
   return url;
 };
 
-export default function InstagramDownloader() {
+export default function InstagramDownloader({ bypassGlobal }: { bypassGlobal: boolean }) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -48,7 +48,7 @@ export default function InstagramDownloader() {
     setDownloadState(null);
 
     try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}`);
+      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze Instagram URL");
       setData(json);
@@ -87,7 +87,8 @@ export default function InstagramDownloader() {
       (state) => setDownloadState(state),
       size,
       false, // Direct pipe (no server merge needed)
-      isAudio
+      isAudio,
+      bypassGlobal
     );
   };
 

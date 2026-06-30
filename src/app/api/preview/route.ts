@@ -19,8 +19,15 @@ const YTDLP_BASE_ARGS = [
   "--remote-components", "ejs:github",
 ];
 
-function getYtDlpArgs(): string[] {
+function getYtDlpArgs(bypassGlobal = false): string[] {
   const args = [...YTDLP_BASE_ARGS];
+
+  if (bypassGlobal) {
+    args.push("--geo-bypass");
+    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
+    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
+  }
+
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -28,7 +35,7 @@ function getYtDlpArgs(): string[] {
   return args;
 }
 
-// ─── Security: allowlist YouTube domains ─────────────────────────────────────
+// ─── Security: allowlist YouTube and other supported domains ──────────────────
 const ALLOWED_HOSTS = [
   "youtube.com", "www.youtube.com", "youtu.be",
   "m.youtube.com", "music.youtube.com",
@@ -37,6 +44,14 @@ const ALLOWED_HOSTS = [
   "bilibili.tv", "www.bilibili.tv",
   "x.com", "www.x.com",
   "twitter.com", "www.twitter.com",
+  "netflix.com", "www.netflix.com",
+  "primevideo.com", "www.primevideo.com",
+  "amazon.com", "www.amazon.com",
+  "monomax.me", "www.monomax.me",
+  "koredrama.com", "www.koredrama.com",
+  "koreandrama.org", "www.koreandrama.org",
+  "iq.com", "www.iq.com",
+  "iqiyi.com", "www.iqiyi.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -60,6 +75,7 @@ async function buildMergedClip(
   formatSelector: string,
   sectionArg: string | null,
   tmpDir: string,
+  bypassGlobal = false,
 ): Promise<{ nodeStream: ReturnType<typeof createReadStream>; size: number }> {
   const outPath = join(tmpDir, "preview.mp4");
 
@@ -76,7 +92,7 @@ async function buildMergedClip(
 
   await new Promise<void>((resolve, reject) => {
     const args = [
-      ...getYtDlpArgs(),
+      ...getYtDlpArgs(bypassGlobal),
       "--no-playlist",
       "-f", formatSelector,
       ...recodeArgs,
@@ -138,6 +154,7 @@ export async function GET(request: Request) {
     // clip=true  → adaptive stream, grab first 30s and merge (quality preview clip)
     // clip=false → combined stream, proxy directly (instant, no muxing)
     const isClip    = searchParams.get("clip") === "true";
+    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
     if (!url) {
       return Response.json({ error: "url is required" }, { status: 400 });
@@ -146,7 +163,7 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(url);
 
     if (!isAllowedUrl(decodedUrl)) {
-      return Response.json({ error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." }, { status: 400 });
+      return Response.json({ error: "This URL is not supported by the whitelist configuration." }, { status: 400 });
     }
 
     if (!FORMAT_ID_RE.test(formatId)) {
@@ -171,6 +188,7 @@ export async function GET(request: Request) {
         formatSelector,
         "*0:00-0:30",   // first 30 seconds only
         tmpDir,
+        bypassGlobal,
       );
 
       return new Response(makeReadable(nodeStream, tmpDir), {
@@ -190,7 +208,7 @@ export async function GET(request: Request) {
     // and CORS-blocked.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...getYtDlpArgs(), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
+      [...getYtDlpArgs(bypassGlobal), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
       { maxBuffer: 1 * 1024 * 1024, timeout: 15_000 }
     );
 

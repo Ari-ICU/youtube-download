@@ -12,7 +12,7 @@ import DownloadToast from "@/components/ui/DownloadToast";
 import QualityPreview from "@/components/ui/QualityPreview";
 import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 
-export default function SingleDownloader() {
+export default function SingleDownloader({ bypassGlobal }: { bypassGlobal: boolean }) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -34,7 +34,7 @@ export default function SingleDownloader() {
     setDownloadState(null);
 
     try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(url.trim())}`);
+      const res = await fetch(`/api/info?url=${encodeURIComponent(url.trim())}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze video URL");
       setData(json);
@@ -69,7 +69,8 @@ export default function SingleDownloader() {
       (state) => setDownloadState(state),
       size,
       needsMerge,
-      isAudio
+      isAudio,
+      bypassGlobal
     );
   };
 

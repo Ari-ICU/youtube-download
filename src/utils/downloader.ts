@@ -100,6 +100,7 @@ async function executeDownloadWithSSE(
   onUpdate: (state: DownloadState) => void,
   merge: boolean,
   isAudio: boolean,
+  bypassGlobal = false,
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -109,7 +110,8 @@ async function executeDownloadWithSSE(
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
     (merge ? "&merge=true" : "") +
-    (isAudio ? "&audio=true" : "");
+    (isAudio ? "&audio=true" : "") +
+    (bypassGlobal ? "&bypassGlobal=true" : "");
 
   return new Promise<string>((resolve, reject) => {
     const evtSource = new EventSource(progressUrl);
@@ -202,6 +204,7 @@ async function executeDownloadDirect(
   id: string,
   onUpdate: (state: DownloadState) => void,
   expectedSize: number,
+  bypassGlobal = false,
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -210,7 +213,8 @@ async function executeDownloadDirect(
     `?url=${encodeURIComponent(url)}` +
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
-    (expectedSize > 0 ? `&size=${expectedSize}` : "");
+    (expectedSize > 0 ? `&size=${expectedSize}` : "") +
+    (bypassGlobal ? "&bypassGlobal=true" : "");
 
   const response = await fetch(apiUrl);
 
@@ -240,14 +244,15 @@ export async function executeDownload(
   expectedSize?: number,
   merge = false,
   isAudio = false,
+  bypassGlobal = false,
 ): Promise<void> {
   try {
     let finalMb: string;
 
     if (merge) {
-      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio);
+      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio, bypassGlobal);
     } else {
-      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
+      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0, bypassGlobal);
     }
 
     onUpdate({ id, status: "completed", progress: 100, downloadedMb: finalMb });
@@ -267,6 +272,7 @@ export async function executeDownloadToBlob(
   expectedSize?: number,
   merge = false,
   isAudio = false,
+  bypassGlobal = false,
 ): Promise<{ blob: Blob; filename: string } | null> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -286,7 +292,8 @@ export async function executeDownloadToBlob(
           `&itag=${encodeURIComponent(itag)}` +
           `&title=${encodeURIComponent(title)}` +
           `&merge=true` +
-          (isAudio ? "&audio=true" : "");
+          (isAudio ? "&audio=true" : "") +
+          (bypassGlobal ? "&bypassGlobal=true" : "");
 
         const evtSource = new EventSource(progressUrl);
 
@@ -337,7 +344,8 @@ export async function executeDownloadToBlob(
         `/api/download` +
         `?url=${encodeURIComponent(url)}` +
         `&itag=${encodeURIComponent(itag)}` +
-        `&title=${encodeURIComponent(title)}`;
+        `&title=${encodeURIComponent(title)}` +
+        (bypassGlobal ? "&bypassGlobal=true" : "");
 
       response = await fetch(apiUrl);
       const cl = response.headers.get("Content-Length");

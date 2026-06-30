@@ -21,13 +21,20 @@ const YTDLP_BILIBILI_ARGS = [
 
 const YTDLP_BASE_ARGS = ["--no-warnings"];
 
-function buildYtDlpArgs(url: string): string[] {
+function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
   const args = [...YTDLP_BASE_ARGS];
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
     args.push(...YTDLP_YOUTUBE_ARGS);
   } else if (url.includes("bilibili.tv")) {
     args.push(...YTDLP_BILIBILI_ARGS);
   }
+
+  if (bypassGlobal) {
+    args.push("--geo-bypass");
+    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
+    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
+  }
+
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -88,6 +95,14 @@ const ALLOWED_HOSTS = [
   "bilibili.tv", "www.bilibili.tv",
   "x.com", "www.x.com",
   "twitter.com", "www.twitter.com",
+  "netflix.com", "www.netflix.com",
+  "primevideo.com", "www.primevideo.com",
+  "amazon.com", "www.amazon.com",
+  "monomax.me", "www.monomax.me",
+  "koredrama.com", "www.koredrama.com",
+  "koreandrama.org", "www.koreandrama.org",
+  "iq.com", "www.iq.com",
+  "iqiyi.com", "www.iqiyi.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -178,6 +193,7 @@ export async function GET(request: Request) {
   const formatId = searchParams.get("itag");
   const title    = searchParams.get("title") ?? "video";
   const merge    = searchParams.get("merge") === "true";
+  const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
   if (!url || !formatId) {
     return new Response("url and itag are required", { status: 400 });
@@ -186,7 +202,7 @@ export async function GET(request: Request) {
   const decodedUrl = decodeURIComponent(url);
 
   if (!isAllowedUrl(decodedUrl)) {
-    return new Response("Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported.", { status: 400 });
+    return new Response("This URL is not supported by the whitelist configuration.", { status: 400 });
   }
 
   if (!FORMAT_ID_RE.test(formatId)) {
@@ -226,7 +242,7 @@ export async function GET(request: Request) {
         const outPath = resolve(join(tmpDir, `output.${ext}`));
 
         // Build yt-dlp args
-        const ytArgs: string[] = [...buildYtDlpArgs(decodedUrl), "--no-playlist", "--newline", "--progress"];
+        const ytArgs: string[] = [...buildYtDlpArgs(decodedUrl, bypassGlobal), "--no-playlist", "--newline", "--progress"];
 
         const isWeTvUrl = decodedUrl.includes("wetv.vip");
         const isInstagramUrl = decodedUrl.includes("instagram.com");

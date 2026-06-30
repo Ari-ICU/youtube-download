@@ -26,7 +26,7 @@ const getProxyUrl = (url?: string) => {
   return url;
 };
 
-export default function WeTVDownloader() {
+export default function WeTVDownloader({ bypassGlobal }: { bypassGlobal: boolean }) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -55,7 +55,7 @@ export default function WeTVDownloader() {
     setDownloadState(null);
 
     try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}`);
+      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze WeTV URL");
       setData(json);
@@ -94,7 +94,8 @@ export default function WeTVDownloader() {
       (state) => setDownloadState(state),
       size,
       true, // Force SSE/temp-file mode
-      isAudio
+      isAudio,
+      bypassGlobal
     );
   };
 

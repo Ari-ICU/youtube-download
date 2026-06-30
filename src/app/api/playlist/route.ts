@@ -18,13 +18,20 @@ const YTDLP_BILIBILI_ARGS = [
 
 const YTDLP_BASE_ARGS = ["--no-warnings"];
 
-function buildYtDlpArgs(url: string): string[] {
+function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
   const args = [...YTDLP_BASE_ARGS];
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
     args.push(...YTDLP_YOUTUBE_ARGS);
   } else if (url.includes("bilibili.tv")) {
     args.push(...YTDLP_BILIBILI_ARGS);
   }
+
+  if (bypassGlobal) {
+    args.push("--geo-bypass");
+    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
+    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
+  }
+
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -49,6 +56,22 @@ const ALLOWED_HOSTS = [
   "www.x.com",
   "twitter.com",
   "www.twitter.com",
+  "netflix.com",
+  "www.netflix.com",
+  "primevideo.com",
+  "www.primevideo.com",
+  "amazon.com",
+  "www.amazon.com",
+  "monomax.me",
+  "www.monomax.me",
+  "koredrama.com",
+  "www.koredrama.com",
+  "koreandrama.org",
+  "www.koreandrama.org",
+  "iq.com",
+  "www.iq.com",
+  "iqiyi.com",
+  "www.iqiyi.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -90,6 +113,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const url = searchParams.get("url");
+    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
     if (!url) {
       return NextResponse.json(
@@ -100,10 +124,9 @@ export async function GET(request: Request) {
 
     const decodedUrl = decodeURIComponent(url);
 
-    // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return NextResponse.json(
-        { error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." },
+        { error: "This URL is not supported by the whitelist configuration." },
         { status: 400 }
       );
     }
@@ -297,7 +320,7 @@ export async function GET(request: Request) {
       if (username) {
         try {
           const stdout = await runYtDlp([
-            ...buildYtDlpArgs(decodedUrl),
+            ...buildYtDlpArgs(decodedUrl, bypassGlobal),
             "--flat-playlist",
             "--dump-single-json",
             decodedUrl,
@@ -354,10 +377,15 @@ export async function GET(request: Request) {
     const isWeTvUrl = decodedUrl.includes("wetv.vip");
     if (isWeTvUrl) {
       try {
+        const fetchHeaders: Record<string, string> = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        };
+        if (bypassGlobal) {
+          fetchHeaders["X-Forwarded-For"] = "171.96.12.34";
+          fetchHeaders["CF-Connecting-IP"] = "171.96.12.34";
+        }
         const pageRes = await fetch(decodedUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          }
+          headers: fetchHeaders,
         });
         if (!pageRes.ok) throw new Error(`WeTV returned status ${pageRes.status}`);
         const html = await pageRes.text();
@@ -412,7 +440,7 @@ export async function GET(request: Request) {
     }
 
     const stdout = await runYtDlp([
-      ...buildYtDlpArgs(decodedUrl),
+      ...buildYtDlpArgs(decodedUrl, bypassGlobal),
       "--flat-playlist",
       "--dump-single-json",
       decodedUrl,

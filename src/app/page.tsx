@@ -19,8 +19,9 @@ export default function Home() {
   // Start with defaults so SSR and client initial render match (no hydration mismatch)
   const [platform, setPlatformState] = useState<"youtube" | "wetv" | "instagram" | "bilibili" | "x">("youtube");
   const [activeTab, setActiveTabState] = useState<ActiveTab>("single");
+  const [bypassGlobal, setBypassGlobalState] = useState(false);
 
-  // After mount, restore the last-used tab from localStorage
+  // After mount, restore the last-used tab and bypass global state from localStorage
   useEffect(() => {
     const savedPlatform = localStorage.getItem("anivora-platform");
     if (savedPlatform === "youtube" || savedPlatform === "wetv" || savedPlatform === "instagram" || savedPlatform === "bilibili" || savedPlatform === "x") {
@@ -29,6 +30,10 @@ export default function Home() {
     const savedTab = localStorage.getItem("anivora-active-tab");
     if (savedTab === "single" || savedTab === "playlist") {
       setActiveTabState(savedTab);
+    }
+    const savedBypass = localStorage.getItem("anivora-bypass-global");
+    if (savedBypass === "true") {
+      setBypassGlobalState(true);
     }
   }, []);
 
@@ -42,9 +47,14 @@ export default function Home() {
     setActiveTabState(tab);
   };
 
+  const setBypassGlobal = (val: boolean) => {
+    localStorage.setItem("anivora-bypass-global", String(val));
+    setBypassGlobalState(val);
+  };
+
   return (
     <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center">
-      <Navbar platform={platform} setPlatform={setPlatform} />
+      <Navbar platform={platform} setPlatform={setPlatform} bypassGlobal={bypassGlobal} setBypassGlobal={setBypassGlobal} />
 
       {/* JSON-LD */}
       <script
@@ -86,7 +96,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <SingleDownloader />
+                <SingleDownloader bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -99,7 +109,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader platform="youtube" />
+                <PlaylistDownloader platform="youtube" bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -112,7 +122,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <WeTVDownloader />
+                <WeTVDownloader bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -125,7 +135,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader platform="wetv" />
+                <PlaylistDownloader platform="wetv" bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -138,7 +148,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <InstagramDownloader />
+                <InstagramDownloader bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -151,7 +161,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader platform="instagram" />
+                <PlaylistDownloader platform="instagram" bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -164,7 +174,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <BilibiliDownloader />
+                <BilibiliDownloader bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -177,7 +187,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader platform="bilibili" />
+                <PlaylistDownloader platform="bilibili" bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -190,7 +200,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <XDownloader />
+                <XDownloader bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
 
@@ -203,7 +213,7 @@ export default function Home() {
                 transition={{ duration: 0.35 }}
                 className="w-full"
               >
-                <PlaylistDownloader platform="x" />
+                <PlaylistDownloader platform="x" bypassGlobal={bypassGlobal} />
               </motion.div>
             )}
           </AnimatePresence>

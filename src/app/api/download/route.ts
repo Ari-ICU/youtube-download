@@ -20,13 +20,20 @@ const YTDLP_BILIBILI_ARGS = [
 
 const YTDLP_BASE_ARGS = ["--no-warnings"];
 
-function buildYtDlpArgs(url: string): string[] {
+function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
   const args = [...YTDLP_BASE_ARGS];
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
     args.push(...YTDLP_YOUTUBE_ARGS);
   } else if (url.includes("bilibili.tv")) {
     args.push(...YTDLP_BILIBILI_ARGS);
   }
+
+  if (bypassGlobal) {
+    args.push("--geo-bypass");
+    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
+    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
+  }
+
   const cookiesPath = join(process.cwd(), "cookies.txt");
   if (existsSync(cookiesPath)) {
     args.push("--cookies", cookiesPath);
@@ -34,7 +41,7 @@ function buildYtDlpArgs(url: string): string[] {
   return args;
 }
 
-// ─── Security: allowlist YouTube domains to prevent SSRF ─────────────────────
+// ─── Security: allowlist YouTube and other supported domains ──────────────────
 const ALLOWED_HOSTS = [
   "youtube.com",
   "www.youtube.com",
@@ -51,6 +58,22 @@ const ALLOWED_HOSTS = [
   "www.x.com",
   "twitter.com",
   "www.twitter.com",
+  "netflix.com",
+  "www.netflix.com",
+  "primevideo.com",
+  "www.primevideo.com",
+  "amazon.com",
+  "www.amazon.com",
+  "monomax.me",
+  "www.monomax.me",
+  "koredrama.com",
+  "www.koredrama.com",
+  "koreandrama.org",
+  "www.koreandrama.org",
+  "iq.com",
+  "www.iq.com",
+  "iqiyi.com",
+  "www.iqiyi.com",
 ];
 
 function isAllowedUrl(raw: string): boolean {
@@ -83,6 +106,7 @@ export async function GET(request: Request) {
     const merge = searchParams.get("merge") === "true";
     // size hint from the client (yt-dlp contentLength) — used to set Content-Length
     const sizeHint = parseInt(searchParams.get("size") ?? "0", 10) || 0;
+    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
     if (!url || !formatId) {
       return new Response(
@@ -96,7 +120,7 @@ export async function GET(request: Request) {
     // ── Security: reject non-YouTube URLs ─────────────────────────────────────
     if (!isAllowedUrl(decodedUrl)) {
       return new Response(
-        JSON.stringify({ error: "Only YouTube, WeTV, Instagram, Bilibili TV, and X URLs are supported." }),
+        JSON.stringify({ error: "This URL is not supported by the whitelist configuration." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -188,7 +212,7 @@ export async function GET(request: Request) {
       }
 
       const ytdlpArgs = [
-        ...buildYtDlpArgs(decodedUrl),
+        ...buildYtDlpArgs(decodedUrl, bypassGlobal),
         "--no-playlist",
         "-f", formatSelector,
         // For Instagram, recode to H.264 to guarantee QuickTime compatibility
@@ -263,7 +287,7 @@ export async function GET(request: Request) {
 
       await new Promise<void>((resolve, reject) => {
         ytdlpProcess = spawn(YTDLP, [
-          ...buildYtDlpArgs(decodedUrl),
+          ...buildYtDlpArgs(decodedUrl, bypassGlobal),
           "--no-playlist",
           "-f", formatSelector,
           "--merge-output-format", "mp4",
@@ -323,7 +347,7 @@ export async function GET(request: Request) {
 
     // ── Direct pipe path (combined or audio-only streams) ────────────────────
     ytdlpProcess = spawn(YTDLP, [
-      ...buildYtDlpArgs(decodedUrl),
+      ...buildYtDlpArgs(decodedUrl, bypassGlobal),
       "--no-playlist",
       "-f", formatId,
       "-o", "-",

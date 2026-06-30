@@ -25,7 +25,7 @@ const getProxyUrl = (url?: string) => {
   return url;
 };
 
-export default function BilibiliDownloader() {
+export default function BilibiliDownloader({ bypassGlobal }: { bypassGlobal: boolean }) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -60,7 +60,7 @@ export default function BilibiliDownloader() {
     setDownloadState(null);
 
     try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}`);
+      const res = await fetch(`/api/info?url=${encodeURIComponent(trimmedUrl)}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze Bilibili TV URL");
       setData(json);
@@ -99,7 +99,8 @@ export default function BilibiliDownloader() {
       (state) => setDownloadState(state),
       size,
       true, // Force SSE/temp-file mode for HLS
-      isAudio
+      isAudio,
+      bypassGlobal
     );
   };
 

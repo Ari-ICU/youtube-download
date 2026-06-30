@@ -43,9 +43,10 @@ const getProxyUrl = (url?: string) => {
 
 interface PlaylistDownloaderProps {
   platform?: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
+  bypassGlobal?: boolean;
 }
 
-export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDownloaderProps) {
+export default function PlaylistDownloader({ platform = "youtube", bypassGlobal = false }: PlaylistDownloaderProps) {
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [playlistData, setPlaylistData] = useState<PlaylistDetails | null>(null);
@@ -169,7 +170,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     if (previewFormats[video.id] && previewFormats[video.id] !== "error") return;
     setPreviewFormats((p) => ({ ...p, [video.id]: "loading" }));
     try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
+      const res = await fetch(`/api/info?url=${encodeURIComponent(video.url)}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       setPreviewFormats((p) => ({ ...p, [video.id]: json.formats }));
@@ -228,7 +229,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
     setQuantityLimit("");
     setControlsOpen(false);
     try {
-      const res = await fetch(`/api/playlist?url=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`/api/playlist?url=${encodeURIComponent(trimmed)}&bypassGlobal=${bypassGlobal}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to analyze playlist URL");
       setPlaylistData(json.playlist);
@@ -357,7 +358,8 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
         (state) => setSingleDownloadState(state),
         size,
         isInstagram ? false : (forceSse ? true : needsMerge),
-        isAudio
+        isAudio,
+        bypassGlobal
       );
     });
   };
@@ -406,7 +408,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
       updateVideoState(video.id, { id: video.id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
       try {
-        const infoRes = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
+        const infoRes = await fetch(`/api/info?url=${encodeURIComponent(video.url)}&bypassGlobal=${bypassGlobal}`);
         if (infoRes.ok) {
           const info = await infoRes.json();
           const formats = info.formats as VideoFormat[];
@@ -428,7 +430,7 @@ export default function PlaylistDownloader({ platform = "youtube" }: PlaylistDow
         const result = await executeDownloadToBlob(
           video.url, chosenItag, video.title, video.id,
           (state) => updateVideoState(video.id, state),
-          expectedSize, needsMerge, chosenIsAudio,
+          expectedSize, needsMerge, chosenIsAudio, bypassGlobal
         );
         if (result) {
           zip.file(result.filename, result.blob);
