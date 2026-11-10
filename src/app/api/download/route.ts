@@ -1,9 +1,8 @@
 import { spawn } from "child_process";
-import { mkdtemp, rm, stat } from "fs/promises";
+import { mkdtemp, readdir, rm, stat } from "fs/promises";
 import { createReadStream } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
+import { join, resolve } from "path";
 import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 export async function GET(request: Request) {
@@ -29,7 +28,7 @@ export async function GET(request: Request) {
 
     if (!isAllowedUrl(decodedUrl)) {
       return new Response(
-        JSON.stringify({ error: "This URL is not supported by the whitelist configuration." }),
+        JSON.stringify({ error: "Only YouTube, TikTok, and Facebook URLs are supported." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -42,7 +41,7 @@ export async function GET(request: Request) {
     }
 
     const sanitizedTitle =
-      title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
+      title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "media-download";
 
     const isAudioOnly = !merge && searchParams.get("audio") === "true";
 
@@ -57,77 +56,53 @@ export async function GET(request: Request) {
       "Cache-Control": "no-cache",
     });
 
-    if (!merge && sizeHint > 0) {
-      headers.set("Content-Length", String(sizeHint));
-    }
-
-    // ── Merge path: write to temp file, then stream back ─────────────────────
-    if (merge) {
+    // ── Merge or Audio Conversion path: write to temp file, then stream back ──
+    if (merge || isAudioOnly) {
       tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
-      const outPath = join(tmpDir, `output.mp4`);
+      const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
+      const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
 
-      const isWeTvUrl = decodedUrl.includes("wetv.vip");
-      const isInstagramUrl = decodedUrl.includes("instagram.com");
-      const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
-      const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
-
-      let formatSelector: string;
-      if (isWeTvUrl || isBilibiliUrl || isXUrl) {
-        formatSelector = formatId;
-      } else if (isInstagramUrl) {
-        formatSelector =
-          `${formatId}[ext=mp4]+bestaudio[ext=m4a]/` +
-          `${formatId}+bestaudio[ext=m4a]/` +
-          `bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
-          `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
-          `bestvideo+bestaudio[ext=m4a]/` +
-          `bestvideo+bestaudio/best[ext=mp4]/best`;
-      } else {
-        formatSelector =
-          `${formatId}+bestaudio[ext=m4a]/` +
-          `${formatId}+bestaudio/` +
-          `bestvideo+bestaudio[ext=m4a]/` +
-          `bestvideo+bestaudio/` +
-          `best`;
-      }
-
-      const recodeArgs: string[] = [];
-      if (!isWeTvUrl && !isInstagramUrl && !isBilibiliUrl && !isXUrl) {
-        const hasVtb = await checkHevcVideotoolbox();
-        if (hasVtb) {
-          recodeArgs.push(
-            "--recode-video",
-            "mp4",
-            "--postprocessor-args",
-            "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
-          );
-        } else {
-          recodeArgs.push("--merge-output-format", "mp4");
-        }
-      }
-
-      const ytdlpArgs = [
+      const ytdlpArgs: string[] = [
         ...buildYtDlpArgs(decodedUrl),
         "--no-playlist",
-        "-f",
-        formatSelector,
-        ...(isInstagramUrl
-          ? [
-              "--recode-video",
-              "mp4",
-              "--postprocessor-args",
-              "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
-            ]
-          : []),
-        ...recodeArgs,
-        "-o",
-        outPath,
-        "--no-part",
-        decodedUrl,
       ];
 
-      await new Promise<void>((resolve, reject) => {
+      if (isAudioOnly) {
+        ytdlpArgs.push(
+          "-f",
+          `${formatId}/bestaudio[ext=m4a]/bestaudio`,
+          "-x",
+          "--audio-format",
+          "m4a"
+        );
+      } else {
+        const formatSelector =
+          `${formatId}+bestaudio[ext=m4a]/` +
+          `${formatId}+bestaudio/` +
+          `bestvideo[height>=2160]+bestaudio[ext=m4a]/` +
+          `bestvideo[height>=2160]+bestaudio/` +
+          `bestvideo+bestaudio[ext=m4a]/` +
+          `bestvideo+bestaudio/best`;
+
+        ytdlpArgs.push(
+          "-f",
+          formatSelector,
+          "--merge-output-format",
+          "mp4",
+          "--remux-video",
+          "mp4",
+          "--postprocessor-args",
+          "Merger+ffmpeg_o:-movflags +faststart"
+        );
+      }
+
+      ytdlpArgs.push("-o", outTemplate, decodedUrl);
+
+      await new Promise<void>((resolvePromise, rejectPromise) => {
         ytdlpProcess = spawn(YTDLP, ytdlpArgs);
+
+        // Drain stdout so the child process pipe never blocks on long 4K downloads
+        ytdlpProcess.stdout?.on("data", () => {});
 
         const stderrChunks: Buffer[] = [];
         ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) =>
@@ -135,20 +110,34 @@ export async function GET(request: Request) {
         );
         ytdlpProcess.on("close", (code) => {
           if (code === 0) {
-            resolve();
+            resolvePromise();
           } else {
             const stderr = Buffer.concat(stderrChunks).toString();
             console.error(`yt-dlp merge exited with code ${code}:`, stderr);
-            reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+            rejectPromise(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
           }
         });
-        ytdlpProcess.on("error", reject);
+        ytdlpProcess.on("error", rejectPromise);
       });
 
-      const { size } = await stat(outPath);
+      let finalFilePath = expectedOutPath;
+      try {
+        await stat(finalFilePath);
+      } catch {
+        const files = await readdir(tmpDir);
+        const candidate = files.find(
+          (f) => f.startsWith("output.") && !f.endsWith(".part") && !f.endsWith(".ytdl")
+        );
+        if (!candidate) {
+          throw new Error("Downloaded output file was not found.");
+        }
+        finalFilePath = resolve(join(tmpDir, candidate));
+      }
+
+      const { size } = await stat(finalFilePath);
       headers.set("Content-Length", String(size));
 
-      const nodeStream = createReadStream(outPath);
+      const nodeStream = createReadStream(finalFilePath);
       const readableStream = new ReadableStream({
         start(controller) {
           nodeStream.on("data", (chunk: Buffer | string) => {
@@ -173,81 +162,9 @@ export async function GET(request: Request) {
       return new Response(readableStream, { headers });
     }
 
-    // ── Direct pipe path (combined or audio-only streams) ────────────────────
-    const isInstagramDirect = decodedUrl.includes("instagram.com");
-    if (isInstagramDirect && !isAudioOnly) {
-      tmpDir = await mkdtemp(join(tmpdir(), "ytdl-ig-"));
-      const outPath = join(tmpDir, `output.mp4`);
-      const formatSelector =
-        `${formatId}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
-        `${formatId}+bestaudio[ext=m4a]/` +
-        `bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
-        `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
-        `bestvideo+bestaudio/best[ext=mp4]/best`;
-
-      await new Promise<void>((resolve, reject) => {
-        ytdlpProcess = spawn(YTDLP, [
-          ...buildYtDlpArgs(decodedUrl),
-          "--no-playlist",
-          "-f",
-          formatSelector,
-          "--merge-output-format",
-          "mp4",
-          "--recode-video",
-          "mp4",
-          "--postprocessor-args",
-          "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
-          "-o",
-          outPath,
-          "--no-part",
-          decodedUrl,
-        ]);
-
-        const stderrChunks2: Buffer[] = [];
-        ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) =>
-          stderrChunks2.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-        );
-        ytdlpProcess.on("close", (code) => {
-          if (code === 0) resolve();
-          else {
-            const stderr = Buffer.concat(stderrChunks2).toString();
-            console.error(`yt-dlp Instagram recode exited with code ${code}:`, stderr);
-            reject(new Error(`yt-dlp exited with code ${code}`));
-          }
-        });
-        ytdlpProcess.on("error", reject);
-      });
-
-      const { size: igSize } = await stat(outPath);
-      const igFilename = `${sanitizedTitle}.mp4`;
-      const igHeaders = new Headers({
-        "Content-Type": "video/mp4",
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(igFilename)}`,
-        "Content-Length": String(igSize),
-        "X-Accel-Buffering": "no",
-        "Cache-Control": "no-cache",
-      });
-      const igStream = createReadStream(outPath);
-      const igReadable = new ReadableStream({
-        start(controller) {
-          igStream.on("data", (chunk: Buffer | string) =>
-            controller.enqueue(new Uint8Array(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-          );
-          igStream.on("end", () => {
-            controller.close();
-            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-          });
-          igStream.on("error", (err) => {
-            controller.error(err);
-            if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-          });
-        },
-        cancel() {
-          igStream.destroy();
-          if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-        },
-      });
-      return new Response(igReadable, { headers: igHeaders });
+    // ── Direct pipe path (combined MP4 streams) ───────────────────────────────
+    if (sizeHint > 0) {
+      headers.set("Content-Length", String(sizeHint));
     }
 
     ytdlpProcess = spawn(YTDLP, [
@@ -257,7 +174,6 @@ export async function GET(request: Request) {
       formatId,
       "-o",
       "-",
-      "--no-part",
       decodedUrl,
     ]);
 
