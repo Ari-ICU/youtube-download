@@ -1,56 +1,58 @@
-# Anivora — Video & Playlist Downloader
+# Anivora Media Studio
 
-A modern Next.js web application for downloading high-definition videos, playlists, audio, and series from **YouTube**, **WeTV**, **Bilibili TV**, **Instagram**, and **X (Twitter)** with high-speed processing and automatic audio/video muxing via FFmpeg.
-
----
-
-## Prerequisites
-
-The application requires two command-line utilities installed on your system:
-
-| Utility | Purpose |
-|---------|---------|
-| `yt-dlp` | Extracts media streams and metadata from supported platforms |
-| `ffmpeg` | Remuxes and merges separate video and audio streams (e.g. 1080p, 4K, HLS) |
-
-A dependency check automatically validates these binaries before `dev`, `build`, and `start`.
+A modern Next.js web application for downloading public videos, audio tracks, and playlists from YouTube, WeTV, Instagram, Bilibili TV, and X (Twitter) in high quality (including 4K 60fps with automatic FFmpeg audio muxing).
 
 ---
 
-## Quick Start (Local Setup)
+## Requirements
+
+The host system needs two command-line tools installed and accessible on `PATH`:
+
+| Binary | Purpose |
+|--------|---------|
+| `yt-dlp` | Extracts streams and metadata from supported platforms |
+| `ffmpeg` | Merges high-resolution adaptive video streams with audio into seekable MP4 containers |
+
+The pre-flight dependency check runs automatically before `npm run dev`, `npm run build`, and `npm start`.
+
+---
+
+## Local Setup
 
 ### 1. Install Dependencies
 
-**macOS (Homebrew):**
+**macOS (Homebrew)**
 ```bash
 brew install ffmpeg yt-dlp
 ```
 
-**Ubuntu / Debian:**
+**Ubuntu / Debian**
 ```bash
 sudo apt update && sudo apt install ffmpeg
 sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
 sudo chmod +x /usr/local/bin/yt-dlp
 ```
 
-**Windows:**
-- Install [ffmpeg](https://ffmpeg.org/download.html) (or `choco install ffmpeg` / `scoop install ffmpeg`)
-- Install [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases) (or `winget install yt-dlp`)
-- Ensure both are added to your system `PATH`.
+**Windows**
+- Download FFmpeg: https://ffmpeg.org/download.html
+- Download yt-dlp: https://github.com/yt-dlp/yt-dlp/releases
+- Add both executables to your system `PATH`.
 
-### 2. Install Node.js Packages & Run
+### 2. Install Node Packages
 
 ```bash
-# Install node packages
 npm install
+```
 
-# Run development server
+### 3. Start Development Server
+
+```bash
 npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) in your browser.
+Visit **http://localhost:3000** in your browser.
 
-### 3. Production Build
+### 4. Build for Production
 
 ```bash
 npm run build
@@ -59,34 +61,12 @@ npm start
 
 ---
 
-## VIP & Authenticated Content Access
+## Features
 
-Platforms like **WeTV** (to avoid the 4-minute preview restriction) and **Bilibili TV** (to access 1080p+ and VIP episodes) require an authenticated session from a subscriber account:
-
-1. Click **VIP Cookies** in the top navigation bar.
-2. Either upload your exported `cookies.txt` file or paste Netscape-formatted cookie text directly.
-3. You can export cookies using browser extensions like [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) while logged into your account.
-4. Once active, all downloads will automatically use your authenticated session to fetch full-length VIP content in full resolution.
-
----
-
-## Geo-Restriction Bypass
-
-Toggle the **Bypass Global** switch in the top bar to inject region-forwarding headers (`X-Forwarded-For`, `CF-Connecting-IP`) and enable geo-bypass mode in `yt-dlp` for regional libraries (such as WeTV Thailand/Southeast Asia and Bilibili TV).
-
----
-
-## Updating `yt-dlp`
-
-Streaming platforms frequently update their web players and protections. If extraction errors occur, update `yt-dlp` to the latest version:
-
-```bash
-# Homebrew
-brew upgrade yt-dlp
-
-# Direct binary
-sudo yt-dlp -U
-
-# pip
-pip install -U yt-dlp
-```
+- **Multi-Platform Support**: Seamlessly download public media from YouTube, WeTV, Instagram, Bilibili TV, and X.
+- **Smart URL Detection**: Automatically detects the platform and adjusts downloader settings when pasting a link.
+- **High-Resolution Video Merging**: Downloads and muxes separate 4K / 1080p video and audio streams into standard MP4 files using FFmpeg.
+- **Audio Extraction**: Clean M4A standalone audio downloading for music and speech content.
+- **Batch Playlist & Feed Downloads**: Extract entire playlists, series, or public feeds and download them packaged as a single ZIP archive.
+- **Fast, Streamlined UI**: Clean glassmorphic design built with Tailwind CSS, Framer Motion, and Lucide icons.
+- **Secure Architecture**: Server-side allowlist validation and sanitized arguments to protect against SSRF and command injection.

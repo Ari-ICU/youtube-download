@@ -1,33 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Anivora | Premium Video Downloader",
-  description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+  title: "Anivora | Modern Media Downloader",
+  description:
+    "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
   keywords: [
     "youtube downloader",
     "playlist downloader",
     "wetv downloader",
+    "instagram downloader",
+    "bilibili downloader",
+    "x video downloader",
+    "twitter video downloader",
     "convert youtube to mp3",
     "anivora",
-    "download youtube video",
-    "online video downloader",
-    "free video downloader",
-    "download youtube playlist",
-    "fast video downloader",
-    "youtube to mp4",
-    "hd video downloader"
+    "hd video downloader",
   ],
   authors: [{ name: "Anivora Team" }],
   creator: "Anivora",
@@ -37,8 +25,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Anivora | Premium Video Downloader",
-    description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+    title: "Anivora | Modern Media Downloader",
+    description:
+      "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
     url: "https://anivora.app",
     siteName: "Anivora",
     images: [
@@ -46,7 +35,7 @@ export const metadata: Metadata = {
         url: "/logo.png",
         width: 512,
         height: 512,
-        alt: "Anivora Premium Downloader Logo",
+        alt: "Anivora Media Studio",
       },
     ],
     locale: "en_US",
@@ -54,8 +43,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Anivora | Premium Video Downloader",
-    description: "Download high-quality YouTube and WeTV videos, playlists, and MP3 audio instantly with our sleek, high-speed, glassmorphic downloader.",
+    title: "Anivora | Modern Media Downloader",
+    description:
+      "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
     images: ["/logo.png"],
     creator: "@anivora",
   },
@@ -72,13 +62,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="en" className="h-full antialiased">
       <body
-      suppressHydrationWarning={true}
-      className="min-h-full flex flex-col">{children}</body>
+        suppressHydrationWarning={true}
+        className="min-h-full flex flex-col font-sans"
+      >
+        {children}
+      </body>
     </html>
   );
 }
