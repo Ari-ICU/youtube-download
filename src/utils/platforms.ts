@@ -157,3 +157,4 @@ export const PLATFORM_LIST: PlatformConfig[] = [
   PLATFORM_CONFIGS.bilibili,
   PLATFORM_CONFIGS.x,
 ];
+
