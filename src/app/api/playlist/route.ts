@@ -1,90 +1,6 @@
 import { NextResponse } from "next/server";
 import { execFile } from "child_process";
-import { existsSync } from "fs";
-import { join } from "path";
-
-const YTDLP = "yt-dlp";
-
-// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
-const YTDLP_YOUTUBE_ARGS = [
-  "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--js-runtimes", "node",
-];
-
-const YTDLP_BILIBILI_ARGS = [
-  "--geo-bypass",
-  "--extractor-args", "BiliBiliTV:lang=en",
-];
-
-const YTDLP_BASE_ARGS = ["--no-warnings"];
-
-function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
-  const args = [...YTDLP_BASE_ARGS];
-  if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    args.push(...YTDLP_YOUTUBE_ARGS);
-  } else if (url.includes("bilibili.tv")) {
-    args.push(...YTDLP_BILIBILI_ARGS);
-  }
-
-  if (bypassGlobal) {
-    args.push("--geo-bypass");
-    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
-    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
-  }
-
-  const cookiesPath = join(process.cwd(), "cookies.txt");
-  if (existsSync(cookiesPath)) {
-    args.push("--cookies", cookiesPath);
-  }
-  return args;
-}
-
-// ─── Security: allowlist YouTube, WeTV, Instagram, and Bilibili TV domains ────
-const ALLOWED_HOSTS = [
-  "youtube.com",
-  "www.youtube.com",
-  "youtu.be",
-  "m.youtube.com",
-  "music.youtube.com",
-  "wetv.vip",
-  "www.wetv.vip",
-  "instagram.com",
-  "www.instagram.com",
-  "bilibili.tv",
-  "www.bilibili.tv",
-  "x.com",
-  "www.x.com",
-  "twitter.com",
-  "www.twitter.com",
-  "netflix.com",
-  "www.netflix.com",
-  "primevideo.com",
-  "www.primevideo.com",
-  "amazon.com",
-  "www.amazon.com",
-  "monomax.me",
-  "www.monomax.me",
-  "koredrama.com",
-  "www.koredrama.com",
-  "koreandrama.org",
-  "www.koreandrama.org",
-  "iq.com",
-  "www.iq.com",
-  "iqiyi.com",
-  "www.iqiyi.com",
-];
-
-function isAllowedUrl(raw: string): boolean {
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.some(
-      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
-    );
-  } catch {
-    return false;
-  }
-}
+import { YTDLP, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 /**
  * Run yt-dlp with the given args and return stdout as a string.
@@ -113,7 +29,6 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const url = searchParams.get("url");
-    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
     if (!url) {
       return NextResponse.json(
@@ -132,17 +47,14 @@ export async function GET(request: Request) {
     }
 
     const isInstagramUrl = decodedUrl.includes("instagram.com");
-    // Detect profile-level URLs (not individual posts/reels)
-    const isInstagramProfile = isInstagramUrl && !decodedUrl.includes("/reel/") && !decodedUrl.includes("/tv/");
-    // Detect if URL points specifically to the /reels/ tab
-    const isReelsTab = isInstagramUrl && /\/reels\/?$/.test(new URL(decodedUrl).pathname);
+    const isInstagramProfile =
+      isInstagramUrl && !decodedUrl.includes("/reel/") && !decodedUrl.includes("/tv/");
 
     if (isInstagramProfile) {
       let username = "";
       try {
         const parsed = new URL(decodedUrl);
         const parts = parsed.pathname.split("/").filter(Boolean);
-        // Handle /username/ and /username/reels/ etc.
         username = parts[0] === "reels" || parts[0] === "explore" ? "" : parts[0];
       } catch {
         return NextResponse.json({ error: "Invalid Instagram Profile URL." }, { status: 400 });
@@ -151,15 +63,15 @@ export async function GET(request: Request) {
       if (username) {
         try {
           const IG_HEADERS = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
             "X-IG-App-ID": "936619743392459",
-            "Accept": "*/*",
+            Accept: "*/*",
             "Accept-Language": "en-US,en;q=0.9",
-            "Origin": "https://www.instagram.com",
-            "Referer": `https://www.instagram.com/${username}/`,
+            Origin: "https://www.instagram.com",
+            Referer: `https://www.instagram.com/${username}/`,
           };
 
-          // ── Step 1: Fetch profile to get user info + first batch of posts ─────
           const profileRes = await fetch(
             `https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`,
             { headers: IG_HEADERS }
@@ -171,15 +83,17 @@ export async function GET(request: Request) {
 
             if (user) {
               const userId: string = user.id ?? "";
-              const playlistThumb: string = user.profile_pic_url_hd ?? user.profile_pic_url ?? "";
+              const playlistThumb: string =
+                user.profile_pic_url_hd ?? user.profile_pic_url ?? "";
 
-              // Collect all edges across pages (up to MAX_POSTS)
               const MAX_POSTS = 200;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               let allEdges: any[] = user.edge_owner_to_timeline_media?.edges ?? [];
-              let moreAvailable: boolean = user.edge_owner_to_timeline_media?.page_info?.has_next_page ?? false;
-              let maxId: string | null = user.edge_owner_to_timeline_media?.page_info?.end_cursor ?? null;
+              let moreAvailable: boolean =
+                user.edge_owner_to_timeline_media?.page_info?.has_next_page ?? false;
+              let maxId: string | null =
+                user.edge_owner_to_timeline_media?.page_info?.end_cursor ?? null;
 
-              // ── Step 2: Paginate via /api/v1/feed/user/{userId}/?max_id=… ─
               while (moreAvailable && maxId && allEdges.length < MAX_POSTS) {
                 try {
                   const feedRes = await fetch(
@@ -189,15 +103,17 @@ export async function GET(request: Request) {
                   if (!feedRes.ok) break;
                   const feedJson = await feedRes.json();
                   if (feedJson.status !== "ok") break;
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const feedItems: any[] = feedJson.items ?? [];
                   if (feedItems.length === 0) break;
-                  // Convert feed items to edge-like objects for uniform processing
-                  // media_type: 1=photo, 2=video/reel, 8=carousel
+
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const feedEdges: any[] = [];
                   for (const item of feedItems) {
-                    const captionEdges = item.caption ? [{ node: { text: item.caption.text ?? "" } }] : [];
+                    const captionEdges = item.caption
+                      ? [{ node: { text: item.caption.text ?? "" } }]
+                      : [];
                     if (item.media_type === 2) {
-                      // Direct video/reel
                       feedEdges.push({
                         node: {
                           shortcode: item.code ?? item.pk,
@@ -209,9 +125,8 @@ export async function GET(request: Request) {
                         },
                       });
                     } else if (item.media_type === 8) {
-                      // Carousel — check each carousel item for embedded videos
                       let carIdx = 0;
-                      for (const carItem of (item.carousel_media ?? [])) {
+                      for (const carItem of item.carousel_media ?? []) {
                         if (carItem.media_type === 2) {
                           feedEdges.push({
                             node: {
@@ -227,23 +142,23 @@ export async function GET(request: Request) {
                         }
                       }
                     }
-                    // media_type 1 = photo — skip
                   }
                   allEdges = [...allEdges, ...feedEdges];
                   moreAvailable = feedJson.more_available ?? false;
                   maxId = feedJson.next_max_id ?? null;
-                  // Small delay to avoid rate-limiting
                   await new Promise((r) => setTimeout(r, 150));
                 } catch {
                   break;
                 }
               }
 
-              // ── Step 3: Map all collected edges to playlist video objects ──
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const mapEdge = (edge: any, index: number) => {
                 const node = edge.node;
                 const baseId = node.shortcode ?? node.id;
-                const id = baseId + (node.carousel_index !== undefined ? `-${node.carousel_index}` : "");
+                const id =
+                  baseId +
+                  (node.carousel_index !== undefined ? `-${node.carousel_index}` : "");
                 const caption = node.edge_media_to_caption?.edges[0]?.node?.text ?? "";
                 const title = caption.trim()
                   ? caption.replace(/\n/g, " ").slice(0, 120)
@@ -260,9 +175,10 @@ export async function GET(request: Request) {
                   title,
                   thumbnail: thumb,
                   duration,
-                  durationText: duration > 0
-                    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
-                    : "",
+                  durationText:
+                    duration > 0
+                      ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
+                      : "",
                   author: user.full_name ?? user.username ?? "Instagram User",
                   url: `https://www.instagram.com/p/${baseId}/`,
                   index,
@@ -270,16 +186,21 @@ export async function GET(request: Request) {
                 };
               };
 
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const uniqueVideosMap = new Map<string, any>();
               allEdges
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .map((edge: any, i: number) => mapEdge(edge, i))
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .filter((v: any) => v.isVideo)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .forEach((v: any) => {
                   if (!uniqueVideosMap.has(v.id)) {
                     uniqueVideosMap.set(v.id, v);
                   }
                 });
 
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const videos = Array.from(uniqueVideosMap.values()).map((v: any, i: number) => ({
                 ...v,
                 index: i,
@@ -300,7 +221,10 @@ export async function GET(request: Request) {
             }
           }
         } catch (err: unknown) {
-          console.error("Instagram profile API error:", err instanceof Error ? err.message : String(err));
+          console.error(
+            "Instagram profile API error:",
+            err instanceof Error ? err.message : String(err)
+          );
         }
       }
     }
@@ -320,24 +244,29 @@ export async function GET(request: Request) {
       if (username) {
         try {
           const stdout = await runYtDlp([
-            ...buildYtDlpArgs(decodedUrl, bypassGlobal),
+            ...buildYtDlpArgs(decodedUrl),
             "--flat-playlist",
             "--dump-single-json",
             decodedUrl,
           ]);
 
           const info = JSON.parse(stdout);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const entries: any[] = info.entries ?? [];
-          const playlistThumb = info.thumbnail ?? (entries[0]?.thumbnail ?? "");
+          const playlistThumb = info.thumbnail ?? entries[0]?.thumbnail ?? "";
 
           const videos = entries.map((e, index) => {
             const id = e.id ?? `video-${index + 1}`;
-            
             const formats = e.formats ?? [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const formatsWithVideo = formats.filter((f: any) => f.vcodec !== "none" && (f.height ?? 0) > 0);
-            const bestFormat = formatsWithVideo.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0]
-              || formats.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0];
-            const videoUrl = bestFormat?.url ?? e.url ?? e.webpage_url ?? `https://x.com/i/status/${id}`;
+            const bestFormat =
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatsWithVideo.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0] ||
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formats.sort((a: any, b: any) => (b.height ?? 0) - (a.height ?? 0))[0];
+            const videoUrl =
+              bestFormat?.url ?? e.url ?? e.webpage_url ?? `https://x.com/i/status/${id}`;
 
             const videoTitle = e.title ?? `X Video ${index + 1}`;
             const thumb = e.thumbnail ?? playlistThumb ?? "";
@@ -347,7 +276,11 @@ export async function GET(request: Request) {
               title: videoTitle,
               thumbnail: thumb,
               duration: Math.round(e.duration ?? 0),
-              durationText: e.duration_string ?? (e.duration ? `${Math.floor(e.duration / 60)}:${String(Math.round(e.duration % 60)).padStart(2, "0")}` : ""),
+              durationText:
+                e.duration_string ??
+                (e.duration
+                  ? `${Math.floor(e.duration / 60)}:${String(Math.round(e.duration % 60)).padStart(2, "0")}`
+                  : ""),
               author: info.title ?? info.id ?? `@${username}`,
               url: videoUrl,
               index,
@@ -365,7 +298,10 @@ export async function GET(request: Request) {
 
           return NextResponse.json({ playlist });
         } catch (err: unknown) {
-          console.error("X profile parse error:", err instanceof Error ? err.message : String(err));
+          console.error(
+            "X profile parse error:",
+            err instanceof Error ? err.message : String(err)
+          );
           return NextResponse.json(
             { error: "Failed to scrape X profile. Make sure the profile is public and has videos." },
             { status: 500 }
@@ -377,19 +313,17 @@ export async function GET(request: Request) {
     const isWeTvUrl = decodedUrl.includes("wetv.vip");
     if (isWeTvUrl) {
       try {
-        const fetchHeaders: Record<string, string> = {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        };
-        if (bypassGlobal) {
-          fetchHeaders["X-Forwarded-For"] = "171.96.12.34";
-          fetchHeaders["CF-Connecting-IP"] = "171.96.12.34";
-        }
         const pageRes = await fetch(decodedUrl, {
-          headers: fetchHeaders,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          },
         });
         if (!pageRes.ok) throw new Error(`WeTV returned status ${pageRes.status}`);
         const html = await pageRes.text();
-        const nextMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
+        const nextMatch = html.match(
+          /<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/
+        );
         if (nextMatch) {
           const nextJson = JSON.parse(nextMatch[1]);
           const dataStr = nextJson.props?.pageProps?.data;
@@ -397,30 +331,33 @@ export async function GET(request: Request) {
             const data = JSON.parse(dataStr);
             const coverInfo = data.coverInfo || {};
             const videoList = data.videoList || [];
-            
+
             const cid = coverInfo.cid || decodedUrl.split("/").pop() || "";
             const playlistThumb = coverInfo.posterHz || coverInfo.posterVt || "";
-            
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const videos = videoList.map((v: any, index: number) => {
               const id = v.vid || `ep-${index + 1}`;
-              const title = v.title || `Episode ${v.episode || (index + 1)}`;
-              const thumb = v.pic_640_360 || v.pic_496_280 || v.pic_332_187 || playlistThumb || "";
+              const title = v.title || `Episode ${v.episode || index + 1}`;
+              const thumb =
+                v.pic_640_360 || v.pic_496_280 || v.pic_332_187 || playlistThumb || "";
               const duration = Math.round(v.duration || 0);
-              
+
               return {
                 id,
                 title,
                 thumbnail: thumb,
                 duration,
-                durationText: duration > 0 
-                  ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}` 
-                  : "",
+                durationText:
+                  duration > 0
+                    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
+                    : "",
                 author: coverInfo.title || "WeTV",
                 url: `https://wetv.vip/en/play/${cid}/${id}`,
                 index,
               };
             });
-            
+
             const playlist = {
               id: cid,
               title: coverInfo.title || "WeTV Series",
@@ -429,87 +366,133 @@ export async function GET(request: Request) {
               thumbnail: playlistThumb,
               videos,
             };
-            
+
             return NextResponse.json({ playlist });
           }
         }
       } catch (err: unknown) {
-        console.error("WeTV series page parse error:", err instanceof Error ? err.message : String(err));
-        return NextResponse.json({ error: "Failed to load WeTV series. Please verify the URL." }, { status: 500 });
+        console.error(
+          "WeTV series page parse error:",
+          err instanceof Error ? err.message : String(err)
+        );
+        return NextResponse.json(
+          { error: "Failed to load WeTV series. Please verify the URL." },
+          { status: 500 }
+        );
       }
     }
 
     const stdout = await runYtDlp([
-      ...buildYtDlpArgs(decodedUrl, bypassGlobal),
+      ...buildYtDlpArgs(decodedUrl),
       "--flat-playlist",
       "--dump-single-json",
       decodedUrl,
     ]);
 
     const info = JSON.parse(stdout);
-
     const isBilibiliUrl = decodedUrl.includes("bilibili.tv");
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const entries: any[] = info.entries ?? [];
 
     const playlistThumb =
       info.thumbnail ??
-      (entries[0]?.thumbnails ?? []).sort((a: { width?: number }, b: { width?: number }) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
+      (entries[0]?.thumbnails ?? [])
+        .sort((a: { width?: number }, b: { width?: number }) => (b.width ?? 0) - (a.width ?? 0))[0]
+        ?.url ??
       entries[0]?.thumbnail ??
       "";
 
-    const videos = entries
-      .map((e, index) => {
-        const id = e.id ?? e.url?.split("/").pop() ?? `ep-${index + 1}`;
+    const videos = entries.map((e, index) => {
+      const id = e.id ?? e.url?.split("/").pop() ?? `ep-${index + 1}`;
 
-        let smuggled: any = {};
-        if (isBilibiliUrl && e.url && e.url.includes("__youtubedl_smuggle=")) {
-          try {
-            const hash = e.url.split("#")[1] || "";
-            const params = new URLSearchParams(hash);
-            const smugStr = params.get("__youtubedl_smuggle");
-            if (smugStr) {
-              smuggled = JSON.parse(decodeURIComponent(smugStr));
-            }
-          } catch (err) {
-            console.error("Failed to parse smuggled Bilibili metadata:", err);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let smuggled: any = {};
+      if (isBilibiliUrl && e.url && e.url.includes("__youtubedl_smuggle=")) {
+        try {
+          const hash = e.url.split("#")[1] || "";
+          const params = new URLSearchParams(hash);
+          const smugStr = params.get("__youtubedl_smuggle");
+          if (smugStr) {
+            smuggled = JSON.parse(decodeURIComponent(smugStr));
           }
+        } catch (err) {
+          console.error("Failed to parse smuggled Bilibili metadata:", err);
         }
+      }
 
-        const thumbs = e.thumbnails ?? [];
-        const thumb =
-          thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
-          e.thumbnail ??
-          smuggled.thumbnail ??
-          playlistThumb ??
-          ((isWeTvUrl || isInstagramUrl || isBilibiliUrl) ? "" : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
+      const thumbs = e.thumbnails ?? [];
+      const thumb =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        thumbs.sort((a: any, b: any) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
+        e.thumbnail ??
+        smuggled.thumbnail ??
+        playlistThumb ??
+        (isWeTvUrl || isInstagramUrl || isBilibiliUrl
+          ? ""
+          : `https://img.youtube.com/vi/${id}/mqdefault.jpg`);
 
-        const videoTitle = e.title ?? smuggled.title ?? (isWeTvUrl ? `Episode ${index + 1}` : isBilibiliUrl ? `Episode ${index + 1}` : isInstagramUrl ? `Instagram Video ${index + 1}` : `Video ${index + 1}`);
-        const defaultUrl = isWeTvUrl
-          ? `https://wetv.vip/en/play/${info.id}/${id}`
+      const videoTitle =
+        e.title ??
+        smuggled.title ??
+        (isWeTvUrl
+          ? `Episode ${index + 1}`
           : isBilibiliUrl
-          ? `https://www.bilibili.tv/en/play/${info.id}/${id}`
+          ? `Episode ${index + 1}`
           : isInstagramUrl
-          ? `https://www.instagram.com/p/${id}/`
-          : `https://www.youtube.com/watch?v=${id}`;
-        const videoUrl = e.url ?? defaultUrl;
+          ? `Instagram Video ${index + 1}`
+          : `Video ${index + 1}`);
+      const defaultUrl = isWeTvUrl
+        ? `https://wetv.vip/en/play/${info.id}/${id}`
+        : isBilibiliUrl
+        ? `https://www.bilibili.tv/en/play/${info.id}/${id}`
+        : isInstagramUrl
+        ? `https://www.instagram.com/p/${id}/`
+        : `https://www.youtube.com/watch?v=${id}`;
+      const videoUrl = e.url ?? defaultUrl;
 
-        return {
-          id,
-          title: videoTitle,
-          thumbnail: thumb,
-          duration: Math.round(e.duration ?? 0),
-          durationText: e.duration_string ?? "",
-          author: e.uploader ?? e.channel ?? (isWeTvUrl ? (info.title ?? "WeTV") : isBilibiliUrl ? "Bilibili TV" : isInstagramUrl ? (info.title ?? "Instagram") : ""),
-          url: videoUrl,
-          index,
-        };
-      });
+      return {
+        id,
+        title: videoTitle,
+        thumbnail: thumb,
+        duration: Math.round(e.duration ?? 0),
+        durationText: e.duration_string ?? "",
+        author:
+          e.uploader ??
+          e.channel ??
+          (isWeTvUrl
+            ? info.title ?? "WeTV"
+            : isBilibiliUrl
+            ? "Bilibili TV"
+            : isInstagramUrl
+            ? info.title ?? "Instagram"
+            : ""),
+        url: videoUrl,
+        index,
+      };
+    });
 
     const playlist = {
       id: info.id ?? "",
-      title: info.title ?? (isWeTvUrl ? "WeTV Series" : isBilibiliUrl ? "Bilibili TV Series" : isInstagramUrl ? `${info.id ?? "Instagram"} Profile` : "Untitled Playlist"),
-      author: info.uploader ?? info.channel ?? info.uploader_id ?? (isWeTvUrl ? "WeTV" : isBilibiliUrl ? "Bilibili TV" : isInstagramUrl ? (info.id ?? "Instagram") : "Unknown"),
+      title:
+        info.title ??
+        (isWeTvUrl
+          ? "WeTV Series"
+          : isBilibiliUrl
+          ? "Bilibili TV Series"
+          : isInstagramUrl
+          ? `${info.id ?? "Instagram"} Profile`
+          : "Untitled Playlist"),
+      author:
+        info.uploader ??
+        info.channel ??
+        info.uploader_id ??
+        (isWeTvUrl
+          ? "WeTV"
+          : isBilibiliUrl
+          ? "Bilibili TV"
+          : isInstagramUrl
+          ? info.id ?? "Instagram"
+          : "Unknown"),
       videoCountText: `${videos.length} video${videos.length !== 1 ? "s" : ""}`,
       thumbnail: playlistThumb || (videos[0]?.thumbnail ?? ""),
       videos,
@@ -519,19 +502,9 @@ export async function GET(request: Request) {
   } catch (error: unknown) {
     const rawMsg = error instanceof Error ? error.message : String(error);
     let msg = rawMsg;
-    if (rawMsg.includes("instagram") && (rawMsg.includes("Unable to extract data") || rawMsg.includes("login") || rawMsg.includes("cookies"))) {
-      msg = "Instagram restricts scanning profile pages without account cookies. Please download individual videos/reels directly using the Single Downloader, or place a cookies.txt file in the project root to authenticate.";
-    } else if (rawMsg.includes("instagram")) {
-      msg = "Failed to retrieve Instagram profile. Try downloading the reel directly in the Single tab using its specific URL.";
-    } else if (
-      rawMsg.includes("BiliIntl") ||
-      rawMsg.includes("bilibili.tv") ||
-      rawMsg.includes("NoneType") ||
-      rawMsg.includes("Unknown error")
-    ) {
+    if (rawMsg.includes("instagram")) {
       msg =
-        "Bilibili TV's API is geo-restricted from this server location. " +
-        "Make sure your server/VPN is in a region where bilibili.tv is accessible (Southeast Asia / global).";
+        "Failed to retrieve public Instagram profile feed. Try downloading individual public reels directly in the Single tab.";
     }
     console.error("Error in /api/playlist:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });

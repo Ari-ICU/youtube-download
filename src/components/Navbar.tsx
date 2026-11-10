@@ -1,15 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe, Key, Play, Tv, Camera, Film } from "lucide-react";
+import { Play, Tv, Camera, Film, Sparkles } from "lucide-react";
 import Image from "next/image";
+import type { Platform } from "@/types";
+import { PLATFORM_LIST } from "@/utils/platforms";
 
 interface NavbarProps {
-  platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x";
-  setPlatform: (platform: "youtube" | "wetv" | "instagram" | "bilibili" | "x") => void;
-  bypassGlobal: boolean;
-  setBypassGlobal: (bypassGlobal: boolean) => void;
-  onOpenCookies: () => void;
+  platform: Platform;
+  setPlatform: (platform: Platform) => void;
 }
 
 function XIcon({ className }: { className?: string }) {
@@ -25,52 +24,24 @@ function XIcon({ className }: { className?: string }) {
   );
 }
 
-const platforms = [
-  {
-    id: "youtube" as const,
-    label: "YouTube",
-    icon: Play,
-    activeClass:
-      "bg-red-600/20 text-red-400 border border-red-500/20 shadow-[0_0_15px_rgba(220,38,38,0.15)]",
-  },
-  {
-    id: "wetv" as const,
-    label: "WeTV",
-    icon: Tv,
-    activeClass:
-      "bg-violet-600/20 text-violet-400 border border-violet-500/20 shadow-[0_0_15px_rgba(139,92,246,0.15)]",
-  },
-  {
-    id: "instagram" as const,
-    label: "Instagram",
-    icon: Camera,
-    activeClass:
-      "bg-pink-600/20 text-pink-400 border border-pink-500/20 shadow-[0_0_15px_rgba(219,39,119,0.15)]",
-  },
-  {
-    id: "bilibili" as const,
-    label: "Bilibili TV",
-    icon: Film,
-    activeClass:
-      "bg-orange-600/20 text-orange-400 border border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.15)]",
-  },
-  {
-    id: "x" as const,
-    label: "X (Twitter)",
-    icon: XIcon,
-    activeClass:
-      "bg-zinc-800/40 text-zinc-200 border border-zinc-700/50 shadow-[0_0_15px_rgba(255,255,255,0.08)]",
-  },
-];
+const PLATFORM_ICONS: Record<Platform, React.ElementType> = {
+  youtube: Play,
+  wetv: Tv,
+  instagram: Camera,
+  bilibili: Film,
+  x: XIcon,
+};
 
-export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassGlobal, onOpenCookies }: NavbarProps) {
+export default function Navbar({ platform, setPlatform }: NavbarProps) {
   return (
-    <nav className="sticky top-0 z-50 w-full backdrop-blur-md bg-zinc-950/40 border-b border-white/5 px-3 py-2.5 sm:px-6 sm:py-3">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-
-        {/* Brand/Logo */}
-        <div className="flex items-center gap-2 cursor-pointer group shrink-0">
-          <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden border border-zinc-800 shadow-lg group-hover:border-violet-500/50 transition-colors duration-300">
+    <nav className="sticky top-0 z-50 w-full backdrop-blur-xl bg-zinc-950/70 border-b border-white/[0.06] px-3 py-2.5 sm:px-6 sm:py-3">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+        {/* Brand / Logo */}
+        <div
+          onClick={() => setPlatform("youtube")}
+          className="flex items-center gap-2.5 cursor-pointer group shrink-0"
+        >
+          <div className="relative w-8 h-8 rounded-xl overflow-hidden border border-white/10 shadow-lg group-hover:border-violet-500/50 transition-colors duration-300">
             <Image
               src="/logo.png"
               alt="Anivora Logo"
@@ -79,65 +50,46 @@ export default function Navbar({ platform, setPlatform, bypassGlobal, setBypassG
               className="object-cover"
             />
           </div>
-          <span className="hidden xs:block text-sm sm:text-base font-black tracking-wider bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent group-hover:from-violet-300 group-hover:to-white transition-all duration-300">
-            ANIVORA
-          </span>
+          <div className="hidden xs:flex flex-col">
+            <span className="text-sm sm:text-base font-black tracking-wider bg-gradient-to-r from-white via-zinc-100 to-zinc-400 bg-clip-text text-transparent leading-none">
+              ANIVORA
+            </span>
+            <span className="text-[9px] font-semibold text-zinc-500 tracking-widest uppercase mt-0.5">
+              Media Studio
+            </span>
+          </div>
         </div>
 
-        {/* Action Group */}
-        <div className="flex items-center gap-2">
-          {/* Platform Selector Buttons */}
-          <div className="flex items-center gap-1 bg-zinc-950/80 p-0.5 rounded-xl border border-white/5">
-            {platforms.map(({ id, label, icon: Icon, activeClass }) => (
+        {/* Platform Selector Pill Bar */}
+        <div className="flex items-center gap-1 bg-zinc-900/70 p-1 rounded-2xl border border-white/[0.06] overflow-x-auto max-w-full">
+          {PLATFORM_LIST.map(({ id, label, shortLabel, activeNavClass }) => {
+            const Icon = PLATFORM_ICONS[id];
+            const isActive = platform === id;
+            return (
               <motion.button
                 key={id}
+                type="button"
                 onClick={() => setPlatform(id)}
-                whileTap={{ scale: 0.94 }}
-                className={`relative flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-300 cursor-pointer ${
-                  platform === id
-                    ? activeClass
-                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                whileTap={{ scale: 0.96 }}
+                className={`relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? activeNavClass
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] border border-transparent"
                 }`}
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
-                {/* Label: hidden on very small screens, visible on sm+ */}
-                <span className="hidden sm:inline">{label}</span>
-                {/* Short label for xs screens */}
-                <span className="inline sm:hidden">
-                  {id === "youtube" ? "YT" : id === "wetv" ? "TV" : id === "instagram" ? "IG" : id === "bilibili" ? "BB" : "X"}
-                </span>
+                <span className="hidden md:inline">{label}</span>
+                <span className="inline md:hidden">{shortLabel}</span>
               </motion.button>
-            ))}
-          </div>
-
-          {/* Bypass Global Toggle */}
-          <motion.button
-            onClick={() => setBypassGlobal(!bypassGlobal)}
-            whileTap={{ scale: 0.95 }}
-            className={`relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 border cursor-pointer ${
-              bypassGlobal
-                ? "bg-emerald-600/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.08)]"
-                : "bg-zinc-950/80 text-zinc-500 border-white/5 hover:text-zinc-300 hover:border-zinc-800"
-            }`}
-            title="Bypass Global Play restrictions (Spoofs location via TH/SG proxy headers)"
-          >
-            <Globe className={`w-3.5 h-3.5 shrink-0 ${bypassGlobal ? "animate-pulse text-emerald-400" : "text-zinc-500"}`} />
-            <span className="hidden xs:inline">Bypass Global</span>
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${bypassGlobal ? "bg-emerald-400 shadow-[0_0_8px_#10b981]" : "bg-zinc-600"}`} />
-          </motion.button>
-
-          {/* Cookies Settings Button */}
-          <motion.button
-            onClick={onOpenCookies}
-            whileTap={{ scale: 0.95 }}
-            className="relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 border bg-zinc-950/80 text-zinc-500 border-white/5 hover:text-zinc-300 hover:border-zinc-800 hover:bg-zinc-900/60 cursor-pointer"
-            title="Manage cookies.txt to authenticate and download VIP content"
-          >
-            <Key className="w-3.5 h-3.5 shrink-0 text-zinc-500" />
-            <span className="hidden xs:inline">VIP Cookies</span>
-          </motion.button>
+            );
+          })}
         </div>
 
+        {/* Right Status Badge (Desktop) */}
+        <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] font-semibold text-zinc-400 shrink-0">
+          <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+          <span>4K FFmpeg Ready</span>
+        </div>
       </div>
     </nav>
   );

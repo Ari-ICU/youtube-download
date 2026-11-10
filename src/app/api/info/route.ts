@@ -1,102 +1,9 @@
 import { NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-
-import { existsSync } from "fs";
-import { join } from "path";
+import { YTDLP, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
-
-const YTDLP = "yt-dlp";
-
-// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
-// YouTube: multi-client to unlock 4K/restricted streams.
-// Bilibili TV: geo-bypass + bilibili extractor to access free public content
-//              without a Premium account or region lock.
-// Other sites: minimal args.
-const YTDLP_YOUTUBE_ARGS = [
-  "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--js-runtimes", "node",
-];
-
-const YTDLP_BILIBILI_ARGS = [
-  // Bypass geographic content restrictions
-  "--geo-bypass",
-  // Use the international bilibili extractor (bilibili:fnval=16 requests dash
-  // streams; leaving it at default lets yt-dlp pick the best available stream).
-  "--extractor-args", "BiliBiliTV:lang=en",
-];
-
-const YTDLP_BASE_ARGS = ["--no-warnings"];
-
-function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
-  const args = [...YTDLP_BASE_ARGS];
-
-  if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    args.push(...YTDLP_YOUTUBE_ARGS);
-  } else if (url.includes("bilibili.tv")) {
-    args.push(...YTDLP_BILIBILI_ARGS);
-  }
-
-  if (bypassGlobal) {
-    args.push("--geo-bypass");
-    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
-    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
-  }
-
-  const cookiesPath = join(process.cwd(), "cookies.txt");
-  if (existsSync(cookiesPath)) {
-    args.push("--cookies", cookiesPath);
-  }
-  return args;
-}
-
-// ─── Security: allowlist YouTube and other supported domains ──────────────────
-const ALLOWED_HOSTS = [
-  "youtube.com",
-  "www.youtube.com",
-  "youtu.be",
-  "m.youtube.com",
-  "music.youtube.com",
-  "wetv.vip",
-  "www.wetv.vip",
-  "instagram.com",
-  "www.instagram.com",
-  "bilibili.tv",
-  "www.bilibili.tv",
-  "x.com",
-  "www.x.com",
-  "twitter.com",
-  "www.twitter.com",
-  "netflix.com",
-  "www.netflix.com",
-  "primevideo.com",
-  "www.primevideo.com",
-  "amazon.com",
-  "www.amazon.com",
-  "monomax.me",
-  "www.monomax.me",
-  "koredrama.com",
-  "www.koredrama.com",
-  "koreandrama.org",
-  "www.koreandrama.org",
-  "iq.com",
-  "www.iq.com",
-  "iqiyi.com",
-  "www.iqiyi.com",
-];
-
-function isAllowedUrl(raw: string): boolean {
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.some(
-      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
-    );
-  } catch {
-    return false;
-  }
-}
 
 // ─── Quality label helpers ────────────────────────────────────────────────────
 
@@ -142,7 +49,6 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const url = searchParams.get("url");
-    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
     if (!url) {
       return NextResponse.json({ error: "Video URL is required" }, { status: 400 });
@@ -162,7 +68,7 @@ export async function GET(request: Request) {
     // execFile (not exec) prevents shell injection — args are passed as an array.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...buildYtDlpArgs(decodedUrl, bypassGlobal), "--dump-json", "--no-playlist", decodedUrl],
+      [...buildYtDlpArgs(decodedUrl), "--dump-json", "--no-playlist", decodedUrl],
       { maxBuffer: 10 * 1024 * 1024 } // 10 MB cap
     );
 
@@ -265,14 +171,6 @@ export async function GET(request: Request) {
       });
 
     // ── Deduplication ─────────────────────────────────────────────────────────
-    // For each (height, fps, hasVideo, hasAudio) bucket:
-    //   video-only:    keep one per codec family (av01, vp9, h264), best bitrate each
-    //   combined:      keep all (usually just the legacy 360p+audio "18")
-    //   audio-only:    keep one per codec family (mp4a, opus), best bitrate each
-    //
-    // This collapses 30+ raw formats into a clean ~8-12 item list while keeping
-    // every resolution option and showing the best stream per codec.
-
     type BucketKey = string;
 
     function videoBucketKey(f: MappedFormat): BucketKey {
@@ -288,7 +186,6 @@ export async function GET(request: Request) {
 
     for (const f of mapped) {
       if (f.hasVideo && f.hasAudio) {
-        // Combined streams — keep highest bitrate per height bucket
         const key = `combined|${f.height}|${f.container}`;
         const existing = combinedBuckets.get(key);
         if (!existing || (f.vbr ?? 0) > (existing.vbr ?? 0)) {
@@ -316,9 +213,6 @@ export async function GET(request: Request) {
     ];
 
     // ── Final sort ────────────────────────────────────────────────────────────
-    // 1. combined streams first (legacy formats with muxed audio, usually lower res)
-    // 2. video-only: height desc, then codec rank desc (prefer av01 > vp9 > h264), then vbr desc
-    // 3. audio-only: codec rank desc, then bitrate desc
     const formats = deduped.sort((a, b) => {
       const tierA = a.hasVideo && a.hasAudio ? 3 : a.hasVideo ? 2 : 1;
       const tierB = b.hasVideo && b.hasAudio ? 3 : b.hasVideo ? 2 : 1;
@@ -332,7 +226,6 @@ export async function GET(request: Request) {
         if (cDiff !== 0) return cDiff;
         return (b.vbr ?? 0) - (a.vbr ?? 0);
       }
-      // audio-only
       const cDiff = audioCodecRank(b.acodec) - audioCodecRank(a.acodec);
       if (cDiff !== 0) return cDiff;
       return (b.contentLength ?? 0) - (a.contentLength ?? 0);
@@ -343,26 +236,9 @@ export async function GET(request: Request) {
     const rawMsg = error instanceof Error ? error.message : String(error);
     let msg = rawMsg;
     if (rawMsg.includes("instagram") && (rawMsg.includes("Unable to extract data") || rawMsg.includes("login") || rawMsg.includes("cookies"))) {
-      msg = "Instagram restricts extracting content without account cookies. Please make sure the URL is a direct link to a public video/reel, or place a cookies.txt file in the project root to authenticate.";
-    }
-    const cookiesPath = join(process.cwd(), "cookies.txt");
-    const hasCookies = existsSync(cookiesPath);
-    if (rawMsg.includes("only available for registered users") || rawMsg.includes("login required")) {
-      if (hasCookies) {
-        msg = "This video/episode requires a Bilibili TV Premium (VIP) subscription. The cookies you uploaded are from a free/regular account. Please upload a cookies.txt exported from a logged-in Premium/VIP account to access VIP content.";
-      } else {
-        msg = "This video/episode is restricted to registered Bilibili TV users. Please upload a cookies.txt file using the Cookie Manager above to authenticate.";
-      }
-    } else if (
-      rawMsg.includes("BiliIntl") ||
-      rawMsg.includes("bilibili.tv") ||
-      rawMsg.includes("NoneType") ||
-      rawMsg.includes("Unknown error. Please contact customer service")
-    ) {
-      msg =
-        "Bilibili TV's API is geo-restricted from this server location. " +
-        "To fix this: (1) Upload cookies.txt from a logged-in Bilibili TV Premium browser session using the Cookie Manager above, " +
-        "or (2) make sure your server/VPN is in a region where bilibili.tv is accessible (Southeast Asia / global).";
+      msg = "Instagram could not return public metadata for this URL. Make sure it is a direct link to a public reel or post.";
+    } else if (rawMsg.includes("only available for registered users") || rawMsg.includes("login required")) {
+      msg = "This video requires account sign-in or is not publicly accessible.";
     }
     console.error("Error in /api/info:", rawMsg);
     return NextResponse.json({ error: msg }, { status: 500 });

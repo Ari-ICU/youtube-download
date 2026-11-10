@@ -4,13 +4,11 @@
  *
  * Verifies that ffmpeg and yt-dlp are on PATH before the Next.js server starts.
  * Exits with code 1 and a helpful install message if either is missing.
- * Run automatically via the "predev" and "prestart" npm scripts.
- *
- * Set SKIP_DEP_CHECK=1 to bypass (used inside Docker builder stage).
+ * Run automatically via the "predev", "prebuild", and "prestart" npm scripts.
  */
 
 if (process.env.SKIP_DEP_CHECK === "1") {
-  console.log("  ⚙  SKIP_DEP_CHECK=1 — skipping dependency check (Docker build).\n");
+  console.log("  ⚙  SKIP_DEP_CHECK=1 — skipping dependency check.\n");
   process.exit(0);
 }
 
@@ -26,7 +24,7 @@ const DEPS = [
     installHint: [
       "  macOS:   brew install ffmpeg",
       "  Ubuntu:  sudo apt install ffmpeg",
-      "  Docker:  included in the provided Dockerfile",
+      "  Windows: https://ffmpeg.org/download.html",
     ],
   },
   {
@@ -58,9 +56,8 @@ await Promise.all(
 
 if (!allOk) {
   console.error(
-    "\n❌  Missing required binaries. The server cannot merge 4K video with audio.\n" +
-    "    See the README for setup instructions or run via Docker:\n\n" +
-    "        docker compose up --build\n"
+    "\n❌  Missing required binaries. The server cannot merge high-resolution video with audio.\n" +
+    "    See the README for local installation instructions.\n"
   );
   process.exit(1);
 }

@@ -1,4 +1,33 @@
-import type { DownloadState } from "@/types";
+import type { DownloadState, Platform } from "@/types";
+
+// ─── URL & Image Proxy Helpers ────────────────────────────────────────────────
+
+export function getProxyUrl(url?: string): string {
+  if (!url) return "/logo.png";
+  if (
+    url.includes("fbcdn.net") ||
+    url.includes("cdninstagram.com") ||
+    url.includes("instagram.com") ||
+    url.includes("bstarstatic.com") ||
+    url.includes("bilibili.tv") ||
+    url.includes("wetvinfo.com") ||
+    url.includes("twimg.com") ||
+    url.includes("pbs.twimg.com")
+  ) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+export function detectPlatformFromUrl(rawUrl: string): Platform | null {
+  const lower = rawUrl.toLowerCase();
+  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "youtube";
+  if (lower.includes("wetv.vip")) return "wetv";
+  if (lower.includes("instagram.com")) return "instagram";
+  if (lower.includes("bilibili.tv")) return "bilibili";
+  if (lower.includes("x.com") || lower.includes("twitter.com")) return "x";
+  return null;
+}
 
 // ─── Formatting Helpers ───────────────────────────────────────────────────────
 
@@ -42,7 +71,7 @@ async function streamToFile(
   filename: string,
   id: string,
   totalBytes: number,
-  onUpdate: (state: DownloadState) => void,
+  onUpdate: (state: DownloadState) => void
 ): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Stream reader could not be initialised.");
@@ -79,18 +108,10 @@ async function streamToFile(
   document.body.removeChild(anchor);
   URL.revokeObjectURL(blobUrl);
 
-  // Return the final size string so callers can show it in the completed state
   return formatBytes(receivedBytes);
 }
 
 // ─── SSE-based download (merge path) ─────────────────────────────────────────
-//
-// Flow:
-//  1. Open SSE stream to /api/download/progress — receive real-time progress events
-//  2. On "ready" event → fetch /api/download/file?token=... → stream to browser
-//
-// This gives accurate per-second progress during the yt-dlp + ffmpeg phase,
-// then shows transfer progress while the completed file is sent to the browser.
 
 async function executeDownloadWithSSE(
   url: string,
@@ -99,8 +120,7 @@ async function executeDownloadWithSSE(
   id: string,
   onUpdate: (state: DownloadState) => void,
   merge: boolean,
-  isAudio: boolean,
-  bypassGlobal = false,
+  isAudio: boolean
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -110,8 +130,7 @@ async function executeDownloadWithSSE(
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
     (merge ? "&merge=true" : "") +
-    (isAudio ? "&audio=true" : "") +
-    (bypassGlobal ? "&bypassGlobal=true" : "");
+    (isAudio ? "&audio=true" : "");
 
   return new Promise<string>((resolve, reject) => {
     const evtSource = new EventSource(progressUrl);
@@ -132,7 +151,9 @@ async function executeDownloadWithSSE(
           speedMbps: data.speedMbps,
           phase: data.phase as "downloading" | "merging",
         });
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     });
 
     evtSource.addEventListener("ready", async (e) => {
@@ -145,7 +166,6 @@ async function executeDownloadWithSSE(
           mimeType: string;
         };
 
-        // Update to show "transferring file to browser" phase
         onUpdate({
           id,
           status: "downloading",
@@ -163,7 +183,7 @@ async function executeDownloadWithSSE(
 
         const response = await fetch(fileUrl);
         if (!response.ok) {
-          const err = await response.json().catch(() => ({})) as { error?: string };
+          const err = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(err.error ?? "Failed to fetch file");
         }
 
@@ -193,9 +213,6 @@ async function executeDownloadWithSSE(
 }
 
 // ─── Direct pipe download (non-merge: combined or audio-only streams) ─────────
-//
-// yt-dlp pipes directly to stdout — the route streams it straight to the client.
-// Content-Length comes from the format's known filesize, giving accurate progress.
 
 async function executeDownloadDirect(
   url: string,
@@ -203,8 +220,7 @@ async function executeDownloadDirect(
   title: string,
   id: string,
   onUpdate: (state: DownloadState) => void,
-  expectedSize: number,
-  bypassGlobal = false,
+  expectedSize: number
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -213,18 +229,17 @@ async function executeDownloadDirect(
     `?url=${encodeURIComponent(url)}` +
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
-    (expectedSize > 0 ? `&size=${expectedSize}` : "") +
-    (bypassGlobal ? "&bypassGlobal=true" : "");
+    (expectedSize > 0 ? `&size=${expectedSize}` : "");
 
   const response = await fetch(apiUrl);
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({})) as { error?: string };
+    const errorData = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(errorData.error ?? "Download connection failed");
   }
 
   const contentLength = response.headers.get("Content-Length");
-  const totalBytes = contentLength ? parseInt(contentLength, 10) : (expectedSize ?? 0);
+  const totalBytes = contentLength ? parseInt(contentLength, 10) : expectedSize ?? 0;
 
   const ext = (response.headers.get("Content-Type") ?? "").includes("audio") ? "m4a" : "mp4";
   const filename = `${sanitizeFilename(title)}.${ext}`;
@@ -243,16 +258,15 @@ export async function executeDownload(
   onUpdate: (state: DownloadState) => void,
   expectedSize?: number,
   merge = false,
-  isAudio = false,
-  bypassGlobal = false,
+  isAudio = false
 ): Promise<void> {
   try {
     let finalMb: string;
 
     if (merge) {
-      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio, bypassGlobal);
+      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio);
     } else {
-      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0, bypassGlobal);
+      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
     }
 
     onUpdate({ id, status: "completed", progress: 100, downloadedMb: finalMb });
@@ -271,8 +285,7 @@ export async function executeDownloadToBlob(
   onUpdate: (state: DownloadState) => void,
   expectedSize?: number,
   merge = false,
-  isAudio = false,
-  bypassGlobal = false,
+  isAudio = false
 ): Promise<{ blob: Blob; filename: string } | null> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -282,9 +295,11 @@ export async function executeDownloadToBlob(
     let filename = `${sanitizeFilename(title)}.mp4`;
 
     if (merge) {
-      // SSE phase — wait for ready, then fetch file
       const ready = await new Promise<{
-        token: string; filename: string; sizeMb: string; mimeType: string;
+        token: string;
+        filename: string;
+        sizeMb: string;
+        mimeType: string;
       }>((resolve, reject) => {
         const progressUrl =
           `/api/download/progress` +
@@ -292,15 +307,17 @@ export async function executeDownloadToBlob(
           `&itag=${encodeURIComponent(itag)}` +
           `&title=${encodeURIComponent(title)}` +
           `&merge=true` +
-          (isAudio ? "&audio=true" : "") +
-          (bypassGlobal ? "&bypassGlobal=true" : "");
+          (isAudio ? "&audio=true" : "");
 
         const evtSource = new EventSource(progressUrl);
 
         evtSource.addEventListener("progress", (e) => {
           try {
             const data = JSON.parse(e.data) as {
-              percent: number; downloadedMb: string; speedMbps: string; phase: string;
+              percent: number;
+              downloadedMb: string;
+              speedMbps: string;
+              phase: string;
             };
             onUpdate({
               id,
@@ -310,7 +327,9 @@ export async function executeDownloadToBlob(
               speedMbps: data.speedMbps,
               phase: data.phase as "downloading" | "merging",
             });
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         });
 
         evtSource.addEventListener("ready", (e) => {
@@ -326,7 +345,10 @@ export async function executeDownloadToBlob(
           reject(new Error(msg ?? "Download failed"));
         });
 
-        evtSource.onerror = () => { evtSource.close(); reject(new Error("SSE connection lost")); };
+        evtSource.onerror = () => {
+          evtSource.close();
+          reject(new Error("SSE connection lost"));
+        };
       });
 
       filename = ready.filename;
@@ -344,18 +366,17 @@ export async function executeDownloadToBlob(
         `/api/download` +
         `?url=${encodeURIComponent(url)}` +
         `&itag=${encodeURIComponent(itag)}` +
-        `&title=${encodeURIComponent(title)}` +
-        (bypassGlobal ? "&bypassGlobal=true" : "");
+        `&title=${encodeURIComponent(title)}`;
 
       response = await fetch(apiUrl);
       const cl = response.headers.get("Content-Length");
-      totalBytes = cl ? parseInt(cl, 10) : (expectedSize ?? 0);
+      totalBytes = cl ? parseInt(cl, 10) : expectedSize ?? 0;
       const ext = (response.headers.get("Content-Type") ?? "").includes("audio") ? "m4a" : "mp4";
       filename = `${sanitizeFilename(title)}.${ext}`;
     }
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({})) as { error?: string };
+      const err = (await response.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? "Download failed");
     }
 

@@ -1,252 +1,84 @@
-# YouTube Download Tool
+# Anivora — Video & Playlist Downloader
 
-A Next.js app for downloading YouTube videos and playlists in any quality, including 4K with audio merged via ffmpeg.
-
----
-
-## Requirements
-
-The server needs two binaries on `PATH`:
-
-| Binary | Purpose |
-|--------|---------|
-| `yt-dlp` | Fetches video/audio streams from YouTube |
-| `ffmpeg` | Merges video-only (4K/1080p adaptive) streams with audio |
-
-Without both, 4K and high-res downloads will fail. The dependency check runs automatically before `dev`, `build`, and `start`.
+A modern Next.js web application for downloading high-definition videos, playlists, audio, and series from **YouTube**, **WeTV**, **Bilibili TV**, **Instagram**, and **X (Twitter)** with high-speed processing and automatic audio/video muxing via FFmpeg.
 
 ---
 
-## Option A — Docker (recommended)
+## Prerequisites
 
-The provided `Dockerfile` installs both dependencies automatically.
+The application requires two command-line utilities installed on your system:
 
-```bash
-# Build and start
-docker compose up --build
+| Utility | Purpose |
+|---------|---------|
+| `yt-dlp` | Extracts media streams and metadata from supported platforms |
+| `ffmpeg` | Remuxes and merges separate video and audio streams (e.g. 1080p, 4K, HLS) |
 
-# Or in detached mode
-docker compose up --build -d
-```
-
-The app is available at **http://localhost:3000**.
-
-To stop:
-```bash
-docker compose down
-```
+A dependency check automatically validates these binaries before `dev`, `build`, and `start`.
 
 ---
 
-## Option B — Run locally
+## Quick Start (Local Setup)
 
-### 1. Install ffmpeg
+### 1. Install Dependencies
 
-**macOS (Homebrew)**
+**macOS (Homebrew):**
 ```bash
-brew install ffmpeg
+brew install ffmpeg yt-dlp
 ```
 
-**Ubuntu / Debian**
+**Ubuntu / Debian:**
 ```bash
 sudo apt update && sudo apt install ffmpeg
-```
-
-**Windows**
-Download from https://ffmpeg.org/download.html and add to `PATH`.
-
-### 2. Install yt-dlp
-
-**macOS (Homebrew)**
-```bash
-brew install yt-dlp
-```
-
-**Ubuntu / Debian / any Linux**
-```bash
-sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-  -o /usr/local/bin/yt-dlp
+sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
 sudo chmod +x /usr/local/bin/yt-dlp
 ```
 
-**pip (any OS)**
-```bash
-pip install yt-dlp
-```
+**Windows:**
+- Install [ffmpeg](https://ffmpeg.org/download.html) (or `choco install ffmpeg` / `scoop install ffmpeg`)
+- Install [yt-dlp](https://github.com/yt-dlp/yt-dlp/releases) (or `winget install yt-dlp`)
+- Ensure both are added to your system `PATH`.
 
-**Windows**
-Download `yt-dlp.exe` from https://github.com/yt-dlp/yt-dlp/releases and add to `PATH`.
-
-### 3. Start the app
+### 2. Install Node.js Packages & Run
 
 ```bash
+# Install node packages
 npm install
-npm run dev       # development
-npm run build && npm start   # production
+
+# Run development server
+npm run dev
 ```
 
-The pre-flight check will confirm both binaries are found before the server starts:
+Visit [http://localhost:3000](http://localhost:3000) in your browser.
 
-```
-  ✓  ffmpeg   ffmpeg version 8.1 ...
-  ✓  yt-dlp   2026.03.17
-
-✅  All dependencies found. Starting server…
-```
-
-If a binary is missing you'll see a clear error with install instructions.
-
----
-
-## How 4K merging works
-
-YouTube serves 4K (and most 1080p) as **separate** video-only and audio-only streams. When you select a `+audio` format:
-
-1. The Next.js API route calls `yt-dlp` with `-f <videoItag>+bestaudio[ext=m4a]`
-2. `yt-dlp` downloads both streams to a temp directory
-3. `ffmpeg` (invoked internally by `yt-dlp`) muxes them into a single `.mp4`
-4. The merged file is streamed back to your browser and the temp files are deleted
-
-This is why `ffmpeg` must be installed — without it, `yt-dlp` cannot mux the two streams.
-
----
-
-## Global Deployment
-
-The app is packaged as a single Docker image with `ffmpeg` and `yt-dlp` baked in, so any platform that runs Docker containers works.
-
----
-
-### Option C — VPS (DigitalOcean, Hetzner, Linode, AWS EC2, etc.)
-
-**1. Provision a server** — 1 vCPU / 1 GB RAM minimum; 2 vCPU / 2 GB recommended for concurrent 4K downloads.
-
-**2. Install Docker**
-```bash
-curl -fsSL https://get.docker.com | sh
-```
-
-**3. Copy project files to the server**
-```bash
-# From your local machine
-rsync -av --exclude node_modules --exclude .next \
-  . user@YOUR_SERVER_IP:/opt/youtube-download-tool/
-```
-
-**4. Build and start**
-```bash
-# On the server
-docker compose -f /opt/youtube-download-tool/docker-compose.yml up --build -d
-```
-
-**5. (Optional) Reverse proxy with Nginx + HTTPS**
-
-Install Nginx and Certbot, then create `/etc/nginx/sites-available/ytdl`:
-```nginx
-server {
-    listen 80;
-    server_name yourdomain.com;
-
-    location / {
-        proxy_pass         http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade $http_upgrade;
-        proxy_set_header   Connection keep-alive;
-        proxy_set_header   Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300s;   # needed for large file downloads
-        proxy_send_timeout 300s;
-        client_max_body_size 0;    # no upload limit
-    }
-}
-```
+### 3. Production Build
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/ytdl /etc/nginx/sites-enabled/
-sudo certbot --nginx -d yourdomain.com
-sudo systemctl reload nginx
+npm run build
+npm start
 ```
 
 ---
 
-### Option D — Fly.io (free tier available)
+## VIP & Authenticated Content Access
 
-**1. Install flyctl**
-```bash
-curl -L https://fly.io/install.sh | sh
-fly auth login
-```
+Platforms like **WeTV** (to avoid the 4-minute preview restriction) and **Bilibili TV** (to access 1080p+ and VIP episodes) require an authenticated session from a subscriber account:
 
-**2. Launch the app** (run from the project root)
-```bash
-fly launch --name youtube-download-tool --region sin --dockerfile Dockerfile
-```
-
-When prompted:
-- **Deploy now?** → No (tweak config first)
-
-**3. Edit `fly.toml`** — set memory and a persistent tmp volume:
-```toml
-[build]
-
-[http_service]
-  internal_port = 3000
-  force_https = true
-  auto_stop_machines = "stop"
-  auto_start_machines = true
-
-[[vm]]
-  memory = "2gb"
-  cpu_kind = "shared"
-  cpus = 1
-```
-
-**4. Deploy**
-```bash
-fly deploy
-```
-
-The app will be live at `https://youtube-download-tool.fly.dev`.
+1. Click **VIP Cookies** in the top navigation bar.
+2. Either upload your exported `cookies.txt` file or paste Netscape-formatted cookie text directly.
+3. You can export cookies using browser extensions like [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) while logged into your account.
+4. Once active, all downloads will automatically use your authenticated session to fetch full-length VIP content in full resolution.
 
 ---
 
-### Option E — Railway
+## Geo-Restriction Bypass
 
-**1.** Push the repo to GitHub.
-
-**2.** Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub.
-
-**3.** Railway auto-detects the `Dockerfile`. Set environment variables if needed:
-```
-NODE_ENV=production
-PORT=3000
-```
-
-**4.** Set the memory limit to at least **1 GB** under the service settings (4K merges are memory-intensive).
-
-Railway provides a public URL automatically on every deploy.
+Toggle the **Bypass Global** switch in the top bar to inject region-forwarding headers (`X-Forwarded-For`, `CF-Connecting-IP`) and enable geo-bypass mode in `yt-dlp` for regional libraries (such as WeTV Thailand/Southeast Asia and Bilibili TV).
 
 ---
 
-### Keeping the deployed image current
+## Updating `yt-dlp`
 
-YouTube breaks yt-dlp regularly. To update:
-
-```bash
-# VPS
-docker compose pull && docker compose up --build -d
-
-# Fly.io
-fly deploy
-
-# Railway — push a new commit; CI/CD redeploys automatically
-```
-
----
-
-## Keeping yt-dlp up to date
-
-YouTube frequently changes its API. If downloads start failing, update yt-dlp:
+Streaming platforms frequently update their web players and protections. If extraction errors occur, update `yt-dlp` to the latest version:
 
 ```bash
 # Homebrew
@@ -257,7 +89,4 @@ sudo yt-dlp -U
 
 # pip
 pip install -U yt-dlp
-
-# Docker — rebuild the image
-docker compose up --build
 ```

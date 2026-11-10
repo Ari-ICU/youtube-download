@@ -1,46 +1,10 @@
 import { spawn } from "child_process";
 import { mkdtemp, rm, stat } from "fs/promises";
-import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
-
-const YTDLP = "yt-dlp";
-
-// ─── Per-URL yt-dlp args builder ─────────────────────────────────────────────
-const YTDLP_YOUTUBE_ARGS = [
-  "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--js-runtimes", "node",
-];
-
-const YTDLP_BILIBILI_ARGS = [
-  "--geo-bypass",
-  "--extractor-args", "BiliBiliTV:lang=en",
-];
-
-const YTDLP_BASE_ARGS = ["--no-warnings"];
-
-function buildYtDlpArgs(url: string, bypassGlobal = false): string[] {
-  const args = [...YTDLP_BASE_ARGS];
-  if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    args.push(...YTDLP_YOUTUBE_ARGS);
-  } else if (url.includes("bilibili.tv")) {
-    args.push(...YTDLP_BILIBILI_ARGS);
-  }
-
-  if (bypassGlobal) {
-    args.push("--geo-bypass");
-    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
-    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
-  }
-
-  const cookiesPath = join(process.cwd(), "cookies.txt");
-  if (existsSync(cookiesPath)) {
-    args.push("--cookies", cookiesPath);
-  }
-  return args;
-}
+import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 // ─── Token registry ───────────────────────────────────────────────────────────
 // Maps a short-lived token → { path, tmpDir } so /api/download/file can serve it.
@@ -61,7 +25,6 @@ function getRegistry(): Map<string, FileEntry> {
   if (!global.__downloadTokens) {
     global.__downloadTokens = new Map();
   }
-  // Prune entries older than 10 min
   const now = Date.now();
   for (const [k, v] of global.__downloadTokens) {
     if (now - v.createdAt > 10 * 60 * 1000) {
@@ -81,49 +44,16 @@ export function registerToken(filePath: string, tmpDir: string): string {
 export function consumeToken(token: string): FileEntry | undefined {
   const reg = getRegistry();
   const entry = reg.get(token);
-  if (entry) reg.delete(token); // one-use
+  if (entry) reg.delete(token);
   return entry;
 }
-
-// ─── Security ─────────────────────────────────────────────────────────────────
-
-const ALLOWED_HOSTS = [
-  "youtube.com", "www.youtube.com", "youtu.be",
-  "m.youtube.com", "music.youtube.com",
-  "wetv.vip", "www.wetv.vip",
-  "instagram.com", "www.instagram.com",
-  "bilibili.tv", "www.bilibili.tv",
-  "x.com", "www.x.com",
-  "twitter.com", "www.twitter.com",
-  "netflix.com", "www.netflix.com",
-  "primevideo.com", "www.primevideo.com",
-  "amazon.com", "www.amazon.com",
-  "monomax.me", "www.monomax.me",
-  "koredrama.com", "www.koredrama.com",
-  "koreandrama.org", "www.koreandrama.org",
-  "iq.com", "www.iq.com",
-  "iqiyi.com", "www.iqiyi.com",
-];
-
-function isAllowedUrl(raw: string): boolean {
-  try {
-    const p = new URL(raw);
-    if (p.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.some((h) => p.hostname === h || p.hostname.endsWith(`.${h}`));
-  } catch { return false; }
-}
-
-// yt-dlp format IDs are numeric or alphanumeric strings. The + operator is used
-// for merge selectors. Slash is NOT a valid format ID character and is removed
-// to prevent any path-like injection into yt-dlp -o arguments.
-const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+]{1,60}$/;
 
 // ─── Progress line parser ─────────────────────────────────────────────────────
 
 interface ProgressEvent {
-  percent: number;       // 0-100
-  downloadedMb: string;  // e.g. "12.3"
-  speedMbps: string;     // e.g. "1.20 MiB/s"
+  percent: number;
+  downloadedMb: string;
+  speedMbps: string;
   phase: "downloading" | "merging";
 }
 
@@ -131,13 +61,10 @@ function toMib(val: string, unit: string): number {
   const n = parseFloat(val);
   if (unit === "GiB") return n * 1024;
   if (unit === "KiB") return n / 1024;
-  return n; // MiB
+  return n;
 }
 
 function parseLine(line: string): ProgressEvent | null {
-  // yt-dlp --newline output format:
-  // [download]  12.3% of  164.86MiB at    1.20MiB/s ETA 02:10
-  // Capture: percent, total size (with unit), speed (with unit)
   const m = line.match(
     /\[download\]\s+([\d.]+)%\s+of\s+([\d.]+)(MiB|KiB|GiB|B)\s+at\s+([\d.]+)(MiB|KiB|GiB|B)\/s/
   );
@@ -154,8 +81,6 @@ function parseLine(line: string): ProgressEvent | null {
     };
   }
 
-  // Fallback: percent only line (no size info available yet)
-  // [download]  12.3% of Unknown at    1.20MiB/s
   const m2 = line.match(
     /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)(MiB|KiB|GiB|B)\s/
   );
@@ -171,7 +96,6 @@ function parseLine(line: string): ProgressEvent | null {
     };
   }
 
-  // ffmpeg merge phase
   if (line.includes("[ffmpeg]") || line.includes("Merging") || line.includes("Destination")) {
     return { percent: 99, downloadedMb: "—", speedMbps: "merging…", phase: "merging" };
   }
@@ -193,7 +117,6 @@ export async function GET(request: Request) {
   const formatId = searchParams.get("itag");
   const title    = searchParams.get("title") ?? "video";
   const merge    = searchParams.get("merge") === "true";
-  const bypassGlobal = searchParams.get("bypassGlobal") === "true";
 
   if (!url || !formatId) {
     return new Response("url and itag are required", { status: 400 });
@@ -210,8 +133,6 @@ export async function GET(request: Request) {
   }
 
   const sanitizedTitle = title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "youtube-download";
-  // Use the explicit ?audio=true flag sent by the client — the format ID alone
-  // cannot reliably distinguish audio-only from 4K video (both have high numeric IDs).
   const isAudioOnly = !merge && searchParams.get("audio") === "true";
   const ext = isAudioOnly ? "m4a" : "mp4";
 
@@ -219,19 +140,16 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-
       let tmpDir: string | null = null;
       let proc: ReturnType<typeof spawn> | null = null;
       let controllerClosed = false;
 
-      // Safe close: idempotent, prevents double-close crashes
       const closeController = () => {
         if (controllerClosed) return;
         controllerClosed = true;
         try { controller.close(); } catch { /* already closed */ }
       };
 
-      // Safe send: no-ops once the controller is closed
       const safeSend = (name: string, data: unknown) => {
         if (controllerClosed) return;
         try { controller.enqueue(encoder.encode(sseEvent(name, data))); } catch { /* closed */ }
@@ -241,8 +159,12 @@ export async function GET(request: Request) {
         tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
         const outPath = resolve(join(tmpDir, `output.${ext}`));
 
-        // Build yt-dlp args
-        const ytArgs: string[] = [...buildYtDlpArgs(decodedUrl, bypassGlobal), "--no-playlist", "--newline", "--progress"];
+        const ytArgs: string[] = [
+          ...buildYtDlpArgs(decodedUrl),
+          "--no-playlist",
+          "--newline",
+          "--progress",
+        ];
 
         const isWeTvUrl = decodedUrl.includes("wetv.vip");
         const isInstagramUrl = decodedUrl.includes("instagram.com");
@@ -250,7 +172,6 @@ export async function GET(request: Request) {
         const isXUrl = decodedUrl.includes("x.com") || decodedUrl.includes("twitter.com");
 
         if (isInstagramUrl && !isAudioOnly) {
-          // Instagram: always merge + recode to H.264/AAC for QuickTime compatibility
           const formatSelector =
             `${formatId}[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/` +
             `${formatId}+bestaudio[ext=m4a]/` +
@@ -258,10 +179,14 @@ export async function GET(request: Request) {
             `bestvideo[ext=mp4]+bestaudio[ext=m4a]/` +
             `bestvideo+bestaudio/best[ext=mp4]/best`;
           ytArgs.push(
-            "-f", formatSelector,
-            "--merge-output-format", "mp4",
-            "--recode-video", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart",
+            "-f",
+            formatSelector,
+            "--merge-output-format",
+            "mp4",
+            "--recode-video",
+            "mp4",
+            "--postprocessor-args",
+            "ffmpeg:-c:v libx264 -c:a aac -movflags +faststart"
           );
         } else if (merge && !isWeTvUrl && !isBilibiliUrl && !isXUrl) {
           const formatSelector =
@@ -274,8 +199,10 @@ export async function GET(request: Request) {
           const hasVtb = await checkHevcVideotoolbox();
           if (hasVtb) {
             ytArgs.push(
-              "--recode-video", "mp4",
-              "--postprocessor-args", "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
+              "--recode-video",
+              "mp4",
+              "--postprocessor-args",
+              "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
             );
           } else {
             ytArgs.push("--merge-output-format", "mp4");
@@ -288,8 +215,6 @@ export async function GET(request: Request) {
 
         proc = spawn(YTDLP, ytArgs);
 
-        // yt-dlp writes [download] progress lines to stderr.
-        // We collect them in a buffer and flush on each newline.
         let stderrBuf = "";
         let fullStderr = "";
 
@@ -310,11 +235,8 @@ export async function GET(request: Request) {
 
         const exitCode = await new Promise<number>((res, rej) => {
           proc!.on("close", (code) => {
-            // Detach the data listener before flushing so stale events
-            // can't fire after we close the controller below.
             proc!.stderr?.removeListener("data", onStderrData);
 
-            // Flush any remaining buffered line (no trailing newline)
             if (stderrBuf.trim()) {
               const evt = parseLine(stderrBuf.trim());
               if (evt) safeSend("progress", evt);
@@ -334,7 +256,6 @@ export async function GET(request: Request) {
           return;
         }
 
-        // File is ready — register token and tell the client
         const { size } = await stat(outPath);
         const token = registerToken(outPath, tmpDir);
 
@@ -359,7 +280,7 @@ export async function GET(request: Request) {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -12,9 +10,22 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(imageUrl);
 
     // Validate the image URL to prevent SSRF
-    const allowedDomains = ["cdninstagram.com", "fbcdn.net", "instagram.com", "bstarstatic.com", "bilibili.tv", "twimg.com", "pbs.twimg.com"];
+    const allowedDomains = [
+      "cdninstagram.com",
+      "fbcdn.net",
+      "instagram.com",
+      "bstarstatic.com",
+      "bilibili.tv",
+      "wetvinfo.com",
+      "twimg.com",
+      "pbs.twimg.com",
+      "ytimg.com",
+    ];
     try {
       const parsed = new URL(decodedUrl);
+      if (parsed.protocol !== "https:") {
+        return new Response("HTTPS required", { status: 400 });
+      }
       const isAllowed = allowedDomains.some(
         (d) => parsed.hostname === d || parsed.hostname.endsWith(`.${d}`)
       );
@@ -27,7 +38,8 @@ export async function GET(request: Request) {
 
     const res = await fetch(decodedUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
 

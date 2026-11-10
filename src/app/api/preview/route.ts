@@ -1,81 +1,20 @@
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { mkdtemp, rm, stat } from "fs/promises";
-import { createReadStream, existsSync } from "fs";
+import { createReadStream } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
+import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
-const YTDLP = "yt-dlp";
-
-// Use web + android + android_vr clients:
-// - web/android: broad compatibility, works for region-restricted & low-format videos
-// - android_vr:  unlocks 1440p/2160p (4K) adaptive streams that other clients omit
-const YTDLP_BASE_ARGS = [
-  "--extractor-args", "youtube:player_client=web,android,android_vr",
-  "--no-warnings",
-  "--js-runtimes", "node",
-  "--remote-components", "ejs:github",
-];
-
-function getYtDlpArgs(bypassGlobal = false): string[] {
-  const args = [...YTDLP_BASE_ARGS];
-
-  if (bypassGlobal) {
-    args.push("--geo-bypass");
-    args.push("--add-header", "X-Forwarded-For:171.96.12.34");
-    args.push("--add-header", "CF-Connecting-IP:171.96.12.34");
-  }
-
-  const cookiesPath = join(process.cwd(), "cookies.txt");
-  if (existsSync(cookiesPath)) {
-    args.push("--cookies", cookiesPath);
-  }
-  return args;
-}
-
-// ─── Security: allowlist YouTube and other supported domains ──────────────────
-const ALLOWED_HOSTS = [
-  "youtube.com", "www.youtube.com", "youtu.be",
-  "m.youtube.com", "music.youtube.com",
-  "wetv.vip", "www.wetv.vip",
-  "instagram.com", "www.instagram.com",
-  "bilibili.tv", "www.bilibili.tv",
-  "x.com", "www.x.com",
-  "twitter.com", "www.twitter.com",
-  "netflix.com", "www.netflix.com",
-  "primevideo.com", "www.primevideo.com",
-  "amazon.com", "www.amazon.com",
-  "monomax.me", "www.monomax.me",
-  "koredrama.com", "www.koredrama.com",
-  "koreandrama.org", "www.koreandrama.org",
-  "iq.com", "www.iq.com",
-  "iqiyi.com", "www.iqiyi.com",
-];
-
-function isAllowedUrl(raw: string): boolean {
-  try {
-    const p = new URL(raw);
-    if (p.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.some((h) => p.hostname === h || p.hostname.endsWith(`.${h}`));
-  } catch { return false; }
-}
-
-// yt-dlp format IDs are numeric or alphanumeric strings. The + operator is used
-// for merge selectors. Slash is NOT a valid format ID character and is removed
-// to prevent any path-like injection into yt-dlp -o arguments.
-const FORMAT_ID_RE = /^[a-zA-Z0-9\-_.+]{1,60}$/;
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Write a temp clip (with optional section cut) and return readable stream + size. */
 async function buildMergedClip(
   decodedUrl: string,
   formatSelector: string,
   sectionArg: string | null,
-  tmpDir: string,
-  bypassGlobal = false,
+  tmpDir: string
 ): Promise<{ nodeStream: ReturnType<typeof createReadStream>; size: number }> {
   const outPath = join(tmpDir, "preview.mp4");
 
@@ -83,8 +22,10 @@ async function buildMergedClip(
   const hasVtb = await checkHevcVideotoolbox();
   if (hasVtb) {
     recodeArgs.push(
-      "--recode-video", "mp4",
-      "--postprocessor-args", "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
+      "--recode-video",
+      "mp4",
+      "--postprocessor-args",
+      "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
     );
   } else {
     recodeArgs.push("--merge-output-format", "mp4");
@@ -92,11 +33,13 @@ async function buildMergedClip(
 
   await new Promise<void>((resolve, reject) => {
     const args = [
-      ...getYtDlpArgs(bypassGlobal),
+      ...buildYtDlpArgs(decodedUrl),
       "--no-playlist",
-      "-f", formatSelector,
+      "-f",
+      formatSelector,
       ...recodeArgs,
-      "-o", outPath,
+      "-o",
+      outPath,
       "--no-part",
     ];
     if (sectionArg) args.push("--download-sections", sectionArg);
@@ -109,7 +52,10 @@ async function buildMergedClip(
     );
     proc.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`yt-dlp exited ${code}: ${Buffer.concat(errChunks).toString().slice(0, 500)}`));
+      else
+        reject(
+          new Error(`yt-dlp exited ${code}: ${Buffer.concat(errChunks).toString().slice(0, 500)}`)
+        );
     });
     proc.on("error", reject);
   });
@@ -120,7 +66,7 @@ async function buildMergedClip(
 
 function makeReadable(
   nodeStream: ReturnType<typeof createReadStream>,
-  tmpDir: string,
+  tmpDir: string
 ): ReadableStream {
   return new ReadableStream({
     start(controller) {
@@ -149,12 +95,9 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const url       = searchParams.get("url");
-    const formatId  = searchParams.get("itag") ?? "18";
-    // clip=true  → adaptive stream, grab first 30s and merge (quality preview clip)
-    // clip=false → combined stream, proxy directly (instant, no muxing)
-    const isClip    = searchParams.get("clip") === "true";
-    const bypassGlobal = searchParams.get("bypassGlobal") === "true";
+    const url      = searchParams.get("url");
+    const formatId = searchParams.get("itag") ?? "18";
+    const isClip   = searchParams.get("clip") === "true";
 
     if (!url) {
       return Response.json({ error: "url is required" }, { status: 400 });
@@ -163,17 +106,16 @@ export async function GET(request: Request) {
     const decodedUrl = decodeURIComponent(url);
 
     if (!isAllowedUrl(decodedUrl)) {
-      return Response.json({ error: "This URL is not supported by the whitelist configuration." }, { status: 400 });
+      return Response.json(
+        { error: "This URL is not supported by the whitelist configuration." },
+        { status: 400 }
+      );
     }
 
     if (!FORMAT_ID_RE.test(formatId)) {
       return Response.json({ error: "Invalid format ID." }, { status: 400 });
     }
 
-    // ── Clip path: adaptive (video-only) format — grab 30s, merge audio, stream ─
-    // Used when the user wants to preview a high-res format that has no combined
-    // stream. We cut to 30s so the merge completes in ~5-10 seconds instead of
-    // processing the whole file.
     if (isClip) {
       tmpDir = await mkdtemp(join(tmpdir(), "ytpreview-"));
 
@@ -186,9 +128,8 @@ export async function GET(request: Request) {
       const { nodeStream, size } = await buildMergedClip(
         decodedUrl,
         formatSelector,
-        "*0:00-0:30",   // first 30 seconds only
-        tmpDir,
-        bypassGlobal,
+        "*0:00-0:30",
+        tmpDir
       );
 
       return new Response(makeReadable(nodeStream, tmpDir), {
@@ -202,13 +143,9 @@ export async function GET(request: Request) {
       });
     }
 
-    // ── Direct proxy path: combined (video+audio) stream ─────────────────────
-    // Resolve the direct stream URL server-side then proxy it back.
-    // We cannot give the browser the raw googlevideo.com URL — it's IP-locked
-    // and CORS-blocked.
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...getYtDlpArgs(bypassGlobal), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
+      [...buildYtDlpArgs(decodedUrl), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
       { maxBuffer: 1 * 1024 * 1024, timeout: 15_000 }
     );
 
@@ -217,7 +154,6 @@ export async function GET(request: Request) {
       return Response.json({ error: "Could not resolve stream URL." }, { status: 500 });
     }
 
-    // Forward Range header so the browser can seek
     const rangeHeader = request.headers.get("range");
     const upstreamHeaders: HeadersInit = {
       "User-Agent": "Mozilla/5.0 (compatible; YouTubePreview/1.0)",
@@ -237,7 +173,6 @@ export async function GET(request: Request) {
       status: upstream.status,
       headers: responseHeaders,
     });
-
   } catch (error: unknown) {
     if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     const msg = error instanceof Error ? error.message : "Failed to get preview.";
