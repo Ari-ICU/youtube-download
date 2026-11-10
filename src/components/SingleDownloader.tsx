@@ -66,7 +66,7 @@ export default function SingleDownloader({
     const detected = detectPlatformFromUrl(trimmedUrl);
     if (!detected) {
       setError(
-        `Please enter a valid ${cfg.label} URL (or a link from YouTube, WeTV, Instagram, Bilibili TV, or X).`
+        `Please enter a valid ${cfg.label} URL (or a link from YouTube, TikTok, or Facebook).`
       );
       setData(null);
       return;
@@ -108,15 +108,6 @@ export default function SingleDownloader({
       format?.contentLength ??
       (duration > 0 ? estimateSize(duration, height, isAudio) : 10 * 1024 * 1024);
 
-    const activePlatform = detectPlatformFromUrl(url) ?? platform;
-    const isHlsPlatform =
-      activePlatform === "wetv" ||
-      activePlatform === "bilibili" ||
-      activePlatform === "x";
-    const isInstagram = activePlatform === "instagram";
-
-    const useMerge = isInstagram ? false : isHlsPlatform ? true : needsMerge;
-
     setDownloadTitle(data.details.title);
     executeDownload(
       url.trim(),
@@ -125,7 +116,7 @@ export default function SingleDownloader({
       itag,
       (state) => setDownloadState(state),
       size,
-      useMerge,
+      needsMerge,
       isAudio
     );
   };
@@ -162,11 +153,12 @@ export default function SingleDownloader({
         onDismiss={() => setDownloadState(null)}
       />
 
-      {/* Video preview modal (YouTube) */}
+      {/* Video preview modal */}
       {data && previewOpen && canPreview && (
         <VideoPreviewModal
           details={data.details}
           formats={data.formats}
+          videoUrl={url.trim()}
           onClose={() => setPreviewOpen(false)}
           onDownload={(itag, needsMerge) => {
             setPreviewOpen(false);

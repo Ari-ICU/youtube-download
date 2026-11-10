@@ -1,10 +1,9 @@
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
-import { mkdtemp, rm, stat } from "fs/promises";
+import { mkdtemp, readdir, rm, stat } from "fs/promises";
 import { createReadStream } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { checkHevcVideotoolbox } from "@/utils/ffmpeg";
+import { join, resolve } from "path";
 import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
@@ -16,52 +15,57 @@ async function buildMergedClip(
   sectionArg: string | null,
   tmpDir: string
 ): Promise<{ nodeStream: ReturnType<typeof createReadStream>; size: number }> {
-  const outPath = join(tmpDir, "preview.mp4");
+  const outTemplate = resolve(join(tmpDir, "preview.%(ext)s"));
+  const expectedOutPath = resolve(join(tmpDir, "preview.mp4"));
 
-  const recodeArgs: string[] = [];
-  const hasVtb = await checkHevcVideotoolbox();
-  if (hasVtb) {
-    recodeArgs.push(
-      "--recode-video",
-      "mp4",
-      "--postprocessor-args",
-      "VideoConvertor:-c:v hevc_videotoolbox -c:a aac -movflags +faststart"
-    );
-  } else {
-    recodeArgs.push("--merge-output-format", "mp4");
-  }
-
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolvePromise, rejectPromise) => {
     const args = [
       ...buildYtDlpArgs(decodedUrl),
       "--no-playlist",
       "-f",
       formatSelector,
-      ...recodeArgs,
+      "--merge-output-format",
+      "mp4",
+      "--remux-video",
+      "mp4",
+      "--postprocessor-args",
+      "Merger+ffmpeg_o:-movflags +faststart",
       "-o",
-      outPath,
-      "--no-part",
+      outTemplate,
     ];
     if (sectionArg) args.push("--download-sections", sectionArg);
     args.push(decodedUrl);
 
     const proc = spawn(YTDLP, args);
+    proc.stdout?.on("data", () => {});
     const errChunks: Buffer[] = [];
     proc.stderr?.on("data", (c: Buffer | string) =>
       errChunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
     );
     proc.on("close", (code) => {
-      if (code === 0) resolve();
+      if (code === 0) resolvePromise();
       else
-        reject(
+        rejectPromise(
           new Error(`yt-dlp exited ${code}: ${Buffer.concat(errChunks).toString().slice(0, 500)}`)
         );
     });
-    proc.on("error", reject);
+    proc.on("error", rejectPromise);
   });
 
-  const { size } = await stat(outPath);
-  return { nodeStream: createReadStream(outPath), size };
+  let finalPath = expectedOutPath;
+  try {
+    await stat(finalPath);
+  } catch {
+    const files = await readdir(tmpDir);
+    const candidate = files.find(
+      (f) => f.startsWith("preview.") && !f.endsWith(".part") && !f.endsWith(".ytdl")
+    );
+    if (!candidate) throw new Error("Preview clip output file not found.");
+    finalPath = resolve(join(tmpDir, candidate));
+  }
+
+  const { size } = await stat(finalPath);
+  return { nodeStream: createReadStream(finalPath), size };
 }
 
 function makeReadable(
@@ -107,7 +111,7 @@ export async function GET(request: Request) {
 
     if (!isAllowedUrl(decodedUrl)) {
       return Response.json(
-        { error: "This URL is not supported by the whitelist configuration." },
+        { error: "Only YouTube, TikTok, and Facebook URLs are supported." },
         { status: 400 }
       );
     }
@@ -156,7 +160,7 @@ export async function GET(request: Request) {
 
     const rangeHeader = request.headers.get("range");
     const upstreamHeaders: HeadersInit = {
-      "User-Agent": "Mozilla/5.0 (compatible; YouTubePreview/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; MediaPreview/1.0)",
     };
     if (rangeHeader) upstreamHeaders["Range"] = rangeHeader;
 

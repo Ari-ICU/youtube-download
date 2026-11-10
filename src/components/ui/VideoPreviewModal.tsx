@@ -13,6 +13,7 @@ import type { VideoFormat, VideoDetails } from "@/types";
 interface VideoPreviewModalProps {
   details: VideoDetails;
   formats: VideoFormat[];
+  videoUrl?: string;
   initialItag?: string;
   onClose: () => void;
   onDownload: (itag: string, needsMerge: boolean) => void;
@@ -73,7 +74,7 @@ function isAdaptive(f: VideoFormat): boolean {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function VideoPreviewModal({
-  details, formats, initialItag, onClose, onDownload,
+  details, formats, videoUrl: propVideoUrl, initialItag, onClose, onDownload,
 }: VideoPreviewModalProps) {
   const combinedFormats = getCombinedFormats(formats);
   const adaptiveFormats = getAdaptiveFormats(formats);
@@ -82,8 +83,10 @@ export default function VideoPreviewModal({
   // All previewable formats — combined first (instant), then adaptive (clip)
   const allPreviewFormats = [...combinedFormats, ...adaptiveFormats];
 
-  // Download target state
-  const allDownloadable = [...combinedFormats, ...adaptiveFormats];
+  // Download target state — highest resolution first (e.g. 4K 2160p -> 2K -> 1080p -> combined)
+  const allDownloadable = [...adaptiveFormats, ...combinedFormats].sort(
+    (a, b) => (b.height ?? 0) - (a.height ?? 0)
+  );
   const defaultDownload = initialItag
     ? (allDownloadable.find((f) => f.itag === initialItag) ?? allDownloadable[0])
     : allDownloadable[0];
@@ -132,7 +135,7 @@ export default function VideoPreviewModal({
     setCurrentTime(0);
     setDuration(0);
 
-    const videoUrl = `https://www.youtube.com/watch?v=${details.videoId}`;
+    const resolvedVideoUrl = propVideoUrl || `https://www.youtube.com/watch?v=${details.videoId}`;
 
     if (isAdaptive(fmt)) {
       // Adaptive: request a 30-second merged clip from the server.
@@ -140,17 +143,17 @@ export default function VideoPreviewModal({
       setClipLoading(true);
       setVideoLoading(true);
       setStreamUrl(
-        `/api/preview?url=${encodeURIComponent(videoUrl)}&itag=${encodeURIComponent(fmt.itag)}&clip=true`
+        `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(fmt.itag)}&clip=true`
       );
     } else {
       // Combined: instant proxy stream.
       setClipLoading(false);
       setVideoLoading(true);
       setStreamUrl(
-        `/api/preview?url=${encodeURIComponent(videoUrl)}&itag=${encodeURIComponent(fmt.itag)}`
+        `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(fmt.itag)}`
       );
     }
-  }, [details.videoId]);
+  }, [details.videoId, propVideoUrl]);
 
   useEffect(() => {
     if (previewFormat) loadPreview(previewFormat);

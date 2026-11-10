@@ -98,7 +98,7 @@ export default function PlaylistDownloader({
   const [error, setError] = useState<string | null>(null);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
   const [playlistSearch, setPlaylistSearch] = useState("");
-  const [qualityPreference, setQualityPreference] = useState<QualityPreference>("high");
+  const [qualityPreference, setQualityPreference] = useState<QualityPreference>("4k");
   const [quantityLimit, setQuantityLimit] = useState<string>("");
   const [zipStatus, setZipStatus] = useState<"idle" | "zipping" | "completed" | "failed">("idle");
   const [queue, setQueue] = useState<Record<string, DownloadState>>({});
@@ -223,7 +223,7 @@ export default function PlaylistDownloader({
     formats: VideoFormat[],
     preference: QualityPreference
   ): { itag: string; merge: boolean } => {
-    const fallback = { itag: "18", merge: false };
+    const fallback = { itag: "best", merge: true };
 
     if (preference === "audio") {
       const f =
@@ -232,52 +232,49 @@ export default function PlaylistDownloader({
       return f ? { itag: f.itag, merge: false } : fallback;
     }
 
+    const videoFormats = formats.filter((f) => f.hasVideo);
+    if (videoFormats.length === 0) return fallback;
+
+    const toResult = (f: VideoFormat) => ({
+      itag: f.itag,
+      merge: f.hasVideo && !f.hasAudio,
+    });
+
     if (preference === "4k") {
       const f =
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 2160) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1440);
-      if (f) return { itag: f.itag, merge: true };
-      const hd =
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1080) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio);
-      if (hd) return { itag: hd.itag, merge: true };
-      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
-      return combined ? { itag: combined.itag, merge: false } : fallback;
+        videoFormats.find((f) => f.height >= 2160) ||
+        videoFormats.find((f) => f.height >= 1440) ||
+        videoFormats.find((f) => f.height >= 1080) ||
+        videoFormats[0];
+      return toResult(f);
     }
 
     if (preference === "high") {
-      const videoOnly =
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 1080) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height >= 720) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio);
-      if (videoOnly) return { itag: videoOnly.itag, merge: true };
-      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
-      return combined ? { itag: combined.itag, merge: false } : fallback;
+      const f =
+        videoFormats.find((f) => f.height === 1080) ||
+        videoFormats.find((f) => f.height >= 720 && f.height <= 1080) ||
+        videoFormats.find((f) => f.height >= 720) ||
+        videoFormats[0];
+      return toResult(f);
     }
 
     if (preference === "medium") {
-      const videoOnly =
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height === 480) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height <= 480 && f.height > 0) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio);
-      if (videoOnly) return { itag: videoOnly.itag, merge: true };
-      const combined = formats.find((f) => f.hasVideo && f.hasAudio);
-      return combined ? { itag: combined.itag, merge: false } : fallback;
+      const f =
+        videoFormats.find((f) => f.height === 480 || f.height === 540) ||
+        videoFormats.find((f) => f.height <= 540 && f.height > 0) ||
+        videoFormats[0];
+      return toResult(f);
     }
 
     if (preference === "low") {
-      const combined =
-        formats.find((f) => f.hasVideo && f.hasAudio && f.height <= 360) ||
-        formats.find((f) => f.hasVideo && f.hasAudio);
-      if (combined) return { itag: combined.itag, merge: false };
-      const videoOnly =
-        formats.find((f) => f.hasVideo && !f.hasAudio && f.height <= 360 && f.height > 0) ||
-        formats.find((f) => f.hasVideo && !f.hasAudio);
-      if (videoOnly) return { itag: videoOnly.itag, merge: true };
-      return fallback;
+      const f =
+        videoFormats.find((f) => f.hasAudio && f.height <= 360) ||
+        videoFormats.find((f) => f.height <= 360 && f.height > 0) ||
+        videoFormats[videoFormats.length - 1];
+      return toResult(f);
     }
 
-    return fallback;
+    return toResult(videoFormats[0]);
   };
 
   const filteredVideos = playlistData
@@ -300,10 +297,6 @@ export default function PlaylistDownloader({
       (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
 
     setSingleDownloadTitle(video.title);
-    const activePlatform = detectPlatformFromUrl(video.url) ?? platform;
-    const isHls =
-      activePlatform === "wetv" || activePlatform === "bilibili" || activePlatform === "x";
-    const isInstagram = activePlatform === "instagram";
 
     import("@/utils/downloader").then(({ executeDownload }) => {
       executeDownload(
@@ -313,7 +306,7 @@ export default function PlaylistDownloader({
         video.id,
         (state) => setSingleDownloadState(state),
         size,
-        isInstagram ? false : isHls ? true : needsMerge,
+        needsMerge,
         isAudio
       );
     });
@@ -370,8 +363,6 @@ export default function PlaylistDownloader({
         downloadedMb: "0.0",
       });
 
-      const videoPlatform = detectPlatformFromUrl(video.url) ?? platform;
-
       try {
         const infoRes = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
         if (infoRes.ok) {
@@ -379,12 +370,7 @@ export default function PlaylistDownloader({
           const formats = info.formats as VideoFormat[];
           const target = getTargetFormat(formats, qualityPreference);
           chosenItag = target.itag;
-          needsMerge =
-            videoPlatform === "wetv" || videoPlatform === "bilibili" || videoPlatform === "x"
-              ? true
-              : videoPlatform === "instagram"
-              ? false
-              : target.merge;
+          needsMerge = target.merge;
           const chosenFormat = formats.find((f) => f.itag === chosenItag);
           chosenIsAudio = !chosenFormat?.hasVideo && !!chosenFormat?.hasAudio;
           expectedSize =
@@ -557,6 +543,7 @@ export default function PlaylistDownloader({
             description: "",
           }}
           formats={previewFormats[modalVideo.id] as VideoFormat[]}
+          videoUrl={modalVideo.url}
           onClose={() => setModalVideo(null)}
           onDownload={(itag, needsMerge) => {
             setModalVideo(null);
