@@ -42,3 +42,13 @@ next-env.d.ts
 
 # cookies file for yt-dlp authentication
 cookies.txt
+
+# media and temporary download files
+*.part
+*.mp4
+*.m4a
+*.webm
+*.mkv
+*.tmp
+temp_*
+scratch_*
