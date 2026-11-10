@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "predev": "node scripts/check-deps.mjs",
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "prebuild": "node scripts/check-deps.mjs",
-    "build": "next build",
+    "build": "next build --webpack",
     "prestart": "node scripts/check-deps.mjs",
     "start": "next start",
     "lint": "eslint"
