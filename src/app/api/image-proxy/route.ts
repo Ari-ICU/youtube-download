@@ -9,17 +9,22 @@ export async function GET(request: Request) {
 
     const decodedUrl = decodeURIComponent(imageUrl);
 
-    // Validate the image URL to prevent SSRF
+    // Validate the image URL to prevent SSRF (YouTube, TikTok, Facebook CDNs only)
     const allowedDomains = [
-      "cdninstagram.com",
-      "fbcdn.net",
-      "instagram.com",
-      "bstarstatic.com",
-      "bilibili.tv",
-      "wetvinfo.com",
-      "twimg.com",
-      "pbs.twimg.com",
+      // YouTube
       "ytimg.com",
+      "ggpht.com",
+      // Facebook
+      "fbcdn.net",
+      "fbsbx.com",
+      "facebook.com",
+      // TikTok
+      "tiktokcdn.com",
+      "tiktokcdn-us.com",
+      "tiktokcdn-eu.com",
+      "musical.ly",
+      "ibytedtos.com",
+      "byteimg.com",
     ];
     try {
       const parsed = new URL(decodedUrl);

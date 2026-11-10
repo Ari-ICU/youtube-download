@@ -2,7 +2,7 @@
 // Central type definitions for the Anivora downloader.
 // Import from "@/types" in any component or utility.
 
-export type Platform = "youtube" | "wetv" | "instagram" | "bilibili" | "x";
+export type Platform = "youtube" | "tiktok" | "facebook";
 
 export interface VideoDetails {
   videoId: string;

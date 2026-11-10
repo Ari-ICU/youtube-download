@@ -4,15 +4,17 @@ import type { DownloadState, Platform } from "@/types";
 
 export function getProxyUrl(url?: string): string {
   if (!url) return "/logo.png";
+  const lower = url.toLowerCase();
   if (
-    url.includes("fbcdn.net") ||
-    url.includes("cdninstagram.com") ||
-    url.includes("instagram.com") ||
-    url.includes("bstarstatic.com") ||
-    url.includes("bilibili.tv") ||
-    url.includes("wetvinfo.com") ||
-    url.includes("twimg.com") ||
-    url.includes("pbs.twimg.com")
+    lower.includes("fbcdn.net") ||
+    lower.includes("fbsbx.com") ||
+    lower.includes("facebook.com") ||
+    lower.includes("tiktokcdn.com") ||
+    lower.includes("tiktokcdn-us.com") ||
+    lower.includes("tiktokcdn-eu.com") ||
+    lower.includes("musical.ly") ||
+    lower.includes("ibytedtos.com") ||
+    lower.includes("byteimg.com")
   ) {
     return `/api/image-proxy?url=${encodeURIComponent(url)}`;
   }
@@ -20,12 +22,40 @@ export function getProxyUrl(url?: string): string {
 }
 
 export function detectPlatformFromUrl(rawUrl: string): Platform | null {
-  const lower = rawUrl.toLowerCase();
-  if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "youtube";
-  if (lower.includes("wetv.vip")) return "wetv";
-  if (lower.includes("instagram.com")) return "instagram";
-  if (lower.includes("bilibili.tv")) return "bilibili";
-  if (lower.includes("x.com") || lower.includes("twitter.com")) return "x";
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "youtube.com" ||
+      host.endsWith(".youtube.com") ||
+      host === "youtu.be" ||
+      host === "youtube-nocookie.com" ||
+      host.endsWith(".youtube-nocookie.com")
+    ) {
+      return "youtube";
+    }
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")) {
+      return "tiktok";
+    }
+    if (
+      host === "facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host === "fb.watch" ||
+      host.endsWith(".fb.watch") ||
+      host === "fb.com" ||
+      host.endsWith(".fb.com")
+    ) {
+      return "facebook";
+    }
+  } catch {
+    const lower = rawUrl.toLowerCase();
+    if (lower.includes("youtube.com") || lower.includes("youtu.be")) return "youtube";
+    if (lower.includes("tiktok.com")) return "tiktok";
+    if (lower.includes("facebook.com") || lower.includes("fb.watch") || lower.includes("fb.com")) {
+      return "facebook";
+    }
+  }
   return null;
 }
 
@@ -47,7 +77,7 @@ export function formatBytes(bytes: number): string {
 }
 
 export function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9\-_ ]/g, "").trim() || "youtube-download";
+  return name.replace(/[^a-zA-Z0-9\-_ ]/g, "").trim() || "media-download";
 }
 
 export function estimateSize(
@@ -111,7 +141,7 @@ async function streamToFile(
   return formatBytes(receivedBytes);
 }
 
-// ─── SSE-based download (merge path) ─────────────────────────────────────────
+// ─── SSE-based download (merge & high-res path) ──────────────────────────────
 
 async function executeDownloadWithSSE(
   url: string,
@@ -220,7 +250,8 @@ async function executeDownloadDirect(
   title: string,
   id: string,
   onUpdate: (state: DownloadState) => void,
-  expectedSize: number
+  expectedSize: number,
+  isAudio: boolean
 ): Promise<string> {
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
@@ -229,7 +260,8 @@ async function executeDownloadDirect(
     `?url=${encodeURIComponent(url)}` +
     `&itag=${encodeURIComponent(itag)}` +
     `&title=${encodeURIComponent(title)}` +
-    (expectedSize > 0 ? `&size=${expectedSize}` : "");
+    (expectedSize > 0 ? `&size=${expectedSize}` : "") +
+    (isAudio ? "&audio=true" : "");
 
   const response = await fetch(apiUrl);
 
@@ -261,12 +293,22 @@ export async function executeDownload(
   isAudio = false
 ): Promise<void> {
   try {
+    const platform = detectPlatformFromUrl(url);
+    const useSSE = merge || platform === "tiktok" || platform === "facebook";
     let finalMb: string;
 
-    if (merge) {
-      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, true, isAudio);
+    if (useSSE) {
+      finalMb = await executeDownloadWithSSE(url, itag, title, id, onUpdate, merge, isAudio);
     } else {
-      finalMb = await executeDownloadDirect(url, itag, title, id, onUpdate, expectedSize ?? 0);
+      finalMb = await executeDownloadDirect(
+        url,
+        itag,
+        title,
+        id,
+        onUpdate,
+        expectedSize ?? 0,
+        isAudio
+      );
     }
 
     onUpdate({ id, status: "completed", progress: 100, downloadedMb: finalMb });
@@ -290,11 +332,13 @@ export async function executeDownloadToBlob(
   onUpdate({ id, status: "downloading", progress: 0, downloadedMb: "0.0" });
 
   try {
+    const platform = detectPlatformFromUrl(url);
+    const useSSE = merge || platform === "tiktok" || platform === "facebook";
     let response: Response;
     let totalBytes = 0;
-    let filename = `${sanitizeFilename(title)}.mp4`;
+    let filename = `${sanitizeFilename(title)}.${isAudio ? "m4a" : "mp4"}`;
 
-    if (merge) {
+    if (useSSE) {
       const ready = await new Promise<{
         token: string;
         filename: string;
@@ -306,7 +350,7 @@ export async function executeDownloadToBlob(
           `?url=${encodeURIComponent(url)}` +
           `&itag=${encodeURIComponent(itag)}` +
           `&title=${encodeURIComponent(title)}` +
-          `&merge=true` +
+          (merge ? "&merge=true" : "") +
           (isAudio ? "&audio=true" : "");
 
         const evtSource = new EventSource(progressUrl);
@@ -366,7 +410,8 @@ export async function executeDownloadToBlob(
         `/api/download` +
         `?url=${encodeURIComponent(url)}` +
         `&itag=${encodeURIComponent(itag)}` +
-        `&title=${encodeURIComponent(title)}`;
+        `&title=${encodeURIComponent(title)}` +
+        (isAudio ? "&audio=true" : "");
 
       response = await fetch(apiUrl);
       const cl = response.headers.get("Content-Length");
