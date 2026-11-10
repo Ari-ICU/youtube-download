@@ -1,5 +1,3 @@
-import { join, resolve } from 'path';
-
 let pass = 0, fail = 0;
 function check(label, condition) {
   if (condition) { console.log('  ✓', label); pass++; }

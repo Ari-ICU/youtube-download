@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import Navbar from "@/components/Navbar";
@@ -11,26 +11,44 @@ import SingleDownloader from "@/components/SingleDownloader";
 import PlaylistDownloader from "@/components/PlaylistDownloader";
 import type { ActiveTab, Platform } from "@/types";
 
+const emptySubscribe = () => () => {};
+
 export default function Home() {
+  const isHydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
   const [platform, setPlatformState] = useState<Platform>("youtube");
   const [activeTab, setActiveTabState] = useState<ActiveTab>("single");
 
-  useEffect(() => {
-    const savedPlatform = localStorage.getItem("anivora-platform") as Platform | null;
-    if (
-      savedPlatform === "youtube" ||
-      savedPlatform === "wetv" ||
-      savedPlatform === "instagram" ||
-      savedPlatform === "bilibili" ||
-      savedPlatform === "x"
-    ) {
-      setPlatformState(savedPlatform);
-    }
-    const savedTab = localStorage.getItem("anivora-active-tab") as ActiveTab | null;
-    if (savedTab === "single" || savedTab === "playlist") {
-      setActiveTabState(savedTab);
-    }
-  }, []);
+  // Read saved values once hydrated without cascading effect setState
+  const effectivePlatform: Platform = isHydrated
+    ? (() => {
+        const saved = localStorage.getItem("anivora-platform") as Platform | null;
+        if (
+          saved === "youtube" ||
+          saved === "wetv" ||
+          saved === "instagram" ||
+          saved === "bilibili" ||
+          saved === "x"
+        ) {
+          return platform !== "youtube" ? platform : saved;
+        }
+        return platform;
+      })()
+    : platform;
+
+  const effectiveTab: ActiveTab = isHydrated
+    ? (() => {
+        const saved = localStorage.getItem("anivora-active-tab") as ActiveTab | null;
+        if (saved === "single" || saved === "playlist") {
+          return activeTab !== "single" ? activeTab : saved;
+        }
+        return activeTab;
+      })()
+    : activeTab;
 
   const setPlatform = (p: Platform) => {
     localStorage.setItem("anivora-platform", p);
@@ -44,7 +62,7 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen bg-[#050508] overflow-x-clip flex flex-col items-center">
-      <Navbar platform={platform} setPlatform={setPlatform} />
+      <Navbar platform={effectivePlatform} setPlatform={setPlatform} />
 
       {/* Structured SEO */}
       <script
@@ -83,15 +101,15 @@ export default function Home() {
 
       {/* Main container */}
       <div className="w-full max-w-5xl z-10 flex flex-col flex-1 justify-between py-6 sm:py-10 px-4 sm:px-6 md:px-8">
-        <Header platform={platform} />
+        <Header platform={effectivePlatform} />
 
-        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} platform={platform} />
+        <Tabs activeTab={effectiveTab} setActiveTab={setActiveTab} platform={effectivePlatform} />
 
         <main className="flex-1 w-full">
           <AnimatePresence mode="wait">
-            {activeTab === "single" ? (
+            {effectiveTab === "single" ? (
               <motion.div
-                key={`single-${platform}`}
+                key={`single-${effectivePlatform}`}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
@@ -99,13 +117,13 @@ export default function Home() {
                 className="w-full"
               >
                 <SingleDownloader
-                  platform={platform}
+                  platform={effectivePlatform}
                   onPlatformChange={(p) => setPlatform(p)}
                 />
               </motion.div>
             ) : (
               <motion.div
-                key={`playlist-${platform}`}
+                key={`playlist-${effectivePlatform}`}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
@@ -113,7 +131,7 @@ export default function Home() {
                 className="w-full"
               >
                 <PlaylistDownloader
-                  platform={platform}
+                  platform={effectivePlatform}
                   onPlatformChange={(p) => setPlatform(p)}
                 />
               </motion.div>

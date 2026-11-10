@@ -12,7 +12,6 @@ export interface FileEntry {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __downloadTokens: Map<string, FileEntry> | undefined;
 }
 

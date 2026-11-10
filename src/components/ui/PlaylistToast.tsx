@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,6 +8,8 @@ import {
   Scissors, Download, ChevronDown,
 } from "lucide-react";
 import type { DownloadState } from "@/types";
+
+const emptySubscribe = () => () => {};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,11 +55,9 @@ export default function PlaylistToast({
   isFinished,
   onDismiss,
 }: PlaylistToastProps) {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [expanded, setExpanded] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setMounted(true); }, []);
 
   // Auto-scroll the list to keep the active item visible
   useEffect(() => {

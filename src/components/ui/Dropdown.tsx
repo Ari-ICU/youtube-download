@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+
+const emptySubscribe = () => () => {};
 
 export interface DropdownOption<T extends string = string> {
   value: T;
@@ -36,13 +38,10 @@ export default function Dropdown<T extends string = string>({
 }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const selected = options.find((o) => o.value === value) ?? options[0];
-
-  // Only render portal after hydration
-  useEffect(() => { setMounted(true); }, []);
 
   // Calculate menu position from trigger rect
   const calcPos = useCallback(() => {

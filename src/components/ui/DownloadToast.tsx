@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, CheckCircle2, AlertCircle, X, Scissors } from "lucide-react";
 import type { DownloadState } from "@/types";
+
+const emptySubscribe = () => () => {};
 
 interface DownloadToastProps {
   state: DownloadState | null;
@@ -13,8 +15,11 @@ interface DownloadToastProps {
 }
 
 export default function DownloadToast({ state, title, onDismiss }: DownloadToastProps) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
 
   // Auto-dismiss completed/failed after 4 s
   useEffect(() => {
