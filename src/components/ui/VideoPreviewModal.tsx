@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -9,6 +9,8 @@ import {
   Eye, CheckCircle2, Scissors,
 } from "lucide-react";
 import type { VideoFormat, VideoDetails } from "@/types";
+
+const emptySubscribe = () => () => {};
 
 interface VideoPreviewModalProps {
   details: VideoDetails;
@@ -95,13 +97,18 @@ export default function VideoPreviewModal({
   // Preview format state — default to best combined; if none, default to best adaptive
   const defaultPreview = allPreviewFormats[0] ?? null;
   const [previewFormat, setPreviewFormat] = useState<VideoFormat | null>(defaultPreview);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // Stream URL for the <video> element
-  const [streamUrl, setStreamUrl]   = useState<string | null>(null);
-  const [urlError, setUrlError]     = useState<string | null>(null);
-  const [clipLoading, setClipLoading] = useState(false); // building server-side clip
+  const resolvedVideoUrl = propVideoUrl || `https://www.youtube.com/watch?v=${details.videoId}`;
+  const computedStreamUrl = previewFormat
+    ? isAdaptive(previewFormat)
+      ? `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(previewFormat.itag)}&clip=true&r=${retryCount}`
+      : `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(previewFormat.itag)}&r=${retryCount}`
+    : null;
 
-  // Player state
+  // Player & error state
+  const [urlError, setUrlError]         = useState<string | null>(null);
+  const [clipLoading, setClipLoading]   = useState<boolean>(defaultPreview ? isAdaptive(defaultPreview) : false);
   const [playing, setPlaying]           = useState(false);
   const [muted, setMuted]               = useState(false);
   const [currentTime, setCurrentTime]   = useState(0);
@@ -109,13 +116,14 @@ export default function VideoPreviewModal({
   const [buffered, setBuffered]         = useState(0);
   const [videoLoading, setVideoLoading] = useState(true);
 
+  const streamUrl = urlError ? null : computedStreamUrl;
+
   // Pickers
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
   const [previewPickerOpen, setPreviewPickerOpen]   = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -128,36 +136,16 @@ export default function VideoPreviewModal({
     return () => document.removeEventListener("keydown", fn);
   }, [onClose]);
 
-  const loadPreview = useCallback((fmt: VideoFormat) => {
+  const selectPreview = useCallback((fmt: VideoFormat, isRetry = false) => {
+    setPreviewFormat(fmt);
+    if (isRetry) setRetryCount((c) => c + 1);
     setUrlError(null);
-    setStreamUrl(null);
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-
-    const resolvedVideoUrl = propVideoUrl || `https://www.youtube.com/watch?v=${details.videoId}`;
-
-    if (isAdaptive(fmt)) {
-      // Adaptive: request a 30-second merged clip from the server.
-      // We set streamUrl immediately — the server takes ~10-25s to build the clip.
-      setClipLoading(true);
-      setVideoLoading(true);
-      setStreamUrl(
-        `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(fmt.itag)}&clip=true`
-      );
-    } else {
-      // Combined: instant proxy stream.
-      setClipLoading(false);
-      setVideoLoading(true);
-      setStreamUrl(
-        `/api/preview?url=${encodeURIComponent(resolvedVideoUrl)}&itag=${encodeURIComponent(fmt.itag)}`
-      );
-    }
-  }, [details.videoId, propVideoUrl]);
-
-  useEffect(() => {
-    if (previewFormat) loadPreview(previewFormat);
-  }, [previewFormat, loadPreview]);
+    setClipLoading(isAdaptive(fmt));
+    setVideoLoading(true);
+  }, []);
 
   const onTimeUpdate = () => {
     const v = videoRef.current;
@@ -285,7 +273,7 @@ export default function VideoPreviewModal({
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 px-6 text-center">
                 <AlertCircle className="w-8 h-8 text-red-400" />
                 <p className="text-xs text-red-400 font-semibold">{urlError}</p>
-                <button type="button" onClick={() => previewFormat && loadPreview(previewFormat)}
+                <button type="button" onClick={() => previewFormat && selectPreview(previewFormat, true)}
                   className="text-[10px] text-zinc-400 hover:text-zinc-200 border border-white/10 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors">
                   Retry
                 </button>
@@ -301,7 +289,6 @@ export default function VideoPreviewModal({
                   setVideoLoading(false);
                   setClipLoading(false);
                   setUrlError("Could not load preview. The stream may have expired — try again.");
-                  setStreamUrl(null);
                 }}
                 onClick={togglePlay} playsInline preload="metadata"
               />
@@ -370,7 +357,7 @@ export default function VideoPreviewModal({
                             <p className="text-[9px] font-extrabold text-zinc-600 uppercase tracking-widest px-3 pt-2 pb-1">Instant preview</p>
                             {combinedFormats.map((f) => (
                               <button key={f.itag} type="button"
-                                onMouseDown={() => { setPreviewFormat(f); setPreviewPickerOpen(false); }}
+                                onMouseDown={() => { selectPreview(f); setPreviewPickerOpen(false); }}
                                 className={`w-full text-left px-3 py-2 text-xs transition-colors cursor-pointer flex items-center justify-between gap-2 ${
                                   previewFormat?.itag === f.itag ? "bg-violet-500/20 text-violet-300" : "text-zinc-300 hover:bg-white/[0.06]"
                                 }`}>
@@ -385,7 +372,7 @@ export default function VideoPreviewModal({
                             <p className="text-[9px] font-extrabold text-zinc-600 uppercase tracking-widest px-3 pt-2 pb-1 border-t border-white/5 mt-1">30s clip preview</p>
                             {adaptiveFormats.map((f) => (
                               <button key={f.itag} type="button"
-                                onMouseDown={() => { setPreviewFormat(f); setPreviewPickerOpen(false); }}
+                                onMouseDown={() => { selectPreview(f); setPreviewPickerOpen(false); }}
                                 className={`w-full text-left px-3 py-2 text-xs transition-colors cursor-pointer flex items-center justify-between gap-2 ${
                                   previewFormat?.itag === f.itag ? "bg-amber-500/20 text-amber-300" : "text-zinc-300 hover:bg-white/[0.06]"
                                 }`}>

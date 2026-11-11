@@ -1,6 +1,6 @@
 # Anivora Media Studio
 
-A modern Next.js web application for downloading public videos, audio tracks, and playlists from YouTube, WeTV, Instagram, Bilibili TV, and X (Twitter) in high quality (including 4K 60fps with automatic FFmpeg audio muxing).
+A modern Next.js web application for downloading public videos, audio tracks, and playlists from **YouTube**, **TikTok**, and **Facebook** in up to **4K Ultra HD (2160p 60fps)** with automatic FFmpeg audio muxing and resumable stream transfers.
 
 ---
 
@@ -63,10 +63,10 @@ npm start
 
 ## Features
 
-- **Multi-Platform Support**: Seamlessly download public media from YouTube, WeTV, Instagram, Bilibili TV, and X.
+- **Focused Multi-Platform Support**: Seamlessly download public media from **YouTube**, **TikTok**, and **Facebook**.
 - **Smart URL Detection**: Automatically detects the platform and adjusts downloader settings when pasting a link.
-- **High-Resolution Video Merging**: Downloads and muxes separate 4K / 1080p video and audio streams into standard MP4 files using FFmpeg.
+- **Up to 4K Ultra HD Video Merging**: Downloads and muxes separate 4K / 2K / 1080p video and audio streams into standard faststart MP4 files using FFmpeg, with automatic fragment retry and resume (`--continue`).
 - **Audio Extraction**: Clean M4A standalone audio downloading for music and speech content.
-- **Batch Playlist & Feed Downloads**: Extract entire playlists, series, or public feeds and download them packaged as a single ZIP archive.
+- **Batch Playlist & Feed Downloads**: Extract entire YouTube playlists, TikTok creator feeds, or Facebook video collections and download them packaged as a single ZIP archive.
 - **Fast, Streamlined UI**: Clean glassmorphic design built with Tailwind CSS, Framer Motion, and Lucide icons.
 - **Secure Architecture**: Server-side allowlist validation and sanitized arguments to protect against SSRF and command injection.

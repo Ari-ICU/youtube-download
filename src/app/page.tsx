@@ -29,10 +29,8 @@ export default function Home() {
         const saved = localStorage.getItem("anivora-platform") as Platform | null;
         if (
           saved === "youtube" ||
-          saved === "wetv" ||
-          saved === "instagram" ||
-          saved === "bilibili" ||
-          saved === "x"
+          saved === "tiktok" ||
+          saved === "facebook"
         ) {
           return platform !== "youtube" ? platform : saved;
         }
@@ -75,7 +73,7 @@ export default function Home() {
             url: "https://anivora.app",
             logo: "https://anivora.app/logo.png",
             description:
-              "High-speed public video and playlist downloader supporting YouTube, WeTV, Instagram, Bilibili TV, and X.",
+              "High-speed public 4K video and playlist downloader supporting YouTube, TikTok, and Facebook.",
             applicationCategory: "MultimediaApplication",
             operatingSystem: "All",
             offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },

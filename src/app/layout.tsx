@@ -2,20 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Anivora | Modern Media Downloader",
+  title: "Anivora | 4K Media Downloader for YouTube, TikTok & Facebook",
   description:
-    "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
+    "Download high-quality YouTube, TikTok, and Facebook videos, playlists, and M4A audio in up to 4K Ultra HD with our sleek, glassmorphic downloader.",
   keywords: [
     "youtube downloader",
+    "4k youtube downloader",
+    "tiktok downloader",
+    "facebook video downloader",
     "playlist downloader",
-    "wetv downloader",
-    "instagram downloader",
-    "bilibili downloader",
-    "x video downloader",
-    "twitter video downloader",
-    "convert youtube to mp3",
+    "convert youtube to m4a",
     "anivora",
-    "hd video downloader",
+    "4k video downloader",
   ],
   authors: [{ name: "Anivora Team" }],
   creator: "Anivora",
@@ -25,9 +23,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Anivora | Modern Media Downloader",
+    title: "Anivora | 4K Media Downloader for YouTube, TikTok & Facebook",
     description:
-      "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
+      "Download high-quality YouTube, TikTok, and Facebook videos, playlists, and M4A audio in up to 4K Ultra HD with our sleek, glassmorphic downloader.",
     url: "https://anivora.app",
     siteName: "Anivora",
     images: [
@@ -43,9 +41,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Anivora | Modern Media Downloader",
+    title: "Anivora | 4K Media Downloader for YouTube, TikTok & Facebook",
     description:
-      "Download high-quality YouTube, WeTV, Instagram, Bilibili TV, and X videos, playlists, and MP3 audio instantly with our sleek, glassmorphic downloader.",
+      "Download high-quality YouTube, TikTok, and Facebook videos, playlists, and M4A audio in up to 4K Ultra HD with our sleek, glassmorphic downloader.",
     images: ["/logo.png"],
     creator: "@anivora",
   },

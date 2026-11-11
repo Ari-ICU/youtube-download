@@ -33,7 +33,11 @@ check('v1 UUID rejected',              !TOKEN_RE.test('550e8400-e29b-11d4-a716-4
 
 // ── isAllowedUrl SSRF checks ──────────────────────────────────────────────────
 function isAllowedUrl(raw) {
-  const ALLOWED_HOSTS = ['youtube.com','www.youtube.com','youtu.be','m.youtube.com','music.youtube.com'];
+  const ALLOWED_HOSTS = [
+    'youtube.com','www.youtube.com','youtu.be','m.youtube.com','music.youtube.com','youtube-nocookie.com',
+    'tiktok.com','www.tiktok.com','vm.tiktok.com','vt.tiktok.com','m.tiktok.com',
+    'facebook.com','www.facebook.com','m.facebook.com','web.facebook.com','fb.watch','fb.com',
+  ];
   try {
     const p = new URL(raw);
     if (p.protocol !== 'https:') return false;
@@ -43,6 +47,12 @@ function isAllowedUrl(raw) {
 console.log('\nisAllowedUrl SSRF:');
 check('youtube.com allowed',           isAllowedUrl('https://www.youtube.com/watch?v=abc'));
 check('youtu.be allowed',              isAllowedUrl('https://youtu.be/abc'));
+check('tiktok.com allowed',            isAllowedUrl('https://www.tiktok.com/@user/video/123'));
+check('vm.tiktok.com allowed',         isAllowedUrl('https://vm.tiktok.com/abc/'));
+check('facebook.com allowed',          isAllowedUrl('https://www.facebook.com/watch?v=123'));
+check('fb.watch allowed',              isAllowedUrl('https://fb.watch/abc/'));
+check('instagram.com rejected',        !isAllowedUrl('https://www.instagram.com/reel/abc/'));
+check('x.com rejected',                !isAllowedUrl('https://x.com/user/status/123'));
 check('http rejected',                 !isAllowedUrl('http://www.youtube.com/watch?v=abc'));
 check('credential bypass blocked',     !isAllowedUrl('https://youtube.com@evil.com'));
 check('subdomain spoof blocked',       !isAllowedUrl('https://evil.youtube.com.attacker.com'));
