@@ -116,7 +116,7 @@ export async function GET(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       let tmpDir: string | null = null;
-      let proc: ReturnType<typeof spawn> | null = null;
+      let proc = null as ReturnType<typeof spawn> | null;
       let controllerClosed = false;
 
       const closeController = () => {
@@ -205,7 +205,8 @@ export async function GET(request: Request) {
         };
 
         const runAttempt = async (ytArgs: string[]): Promise<{ code: number; stderr: string }> => {
-          proc = spawn(YTDLP, ytArgs);
+          const child = spawn(YTDLP, ytArgs);
+          proc = child;
 
           let stdoutBuf = "";
           let stderrBuf = "";
@@ -237,13 +238,13 @@ export async function GET(request: Request) {
           const onStdoutData = (chunk: Buffer) => handleLines(chunk, false);
           const onStderrData = (chunk: Buffer) => handleLines(chunk, true);
 
-          proc.stdout?.on("data", onStdoutData);
-          proc.stderr?.on("data", onStderrData);
+          child.stdout?.on("data", onStdoutData);
+          child.stderr?.on("data", onStderrData);
 
           const code = await new Promise<number>((res, rej) => {
-            proc!.on("close", (exitCode) => {
-              proc!.stdout?.removeListener("data", onStdoutData);
-              proc!.stderr?.removeListener("data", onStderrData);
+            child.on("close", (exitCode) => {
+              child.stdout?.removeListener("data", onStdoutData);
+              child.stderr?.removeListener("data", onStderrData);
 
               for (const rem of [stdoutBuf.trim(), stderrBuf.trim()]) {
                 if (rem) {
@@ -255,7 +256,7 @@ export async function GET(request: Request) {
               stderrBuf = "";
               res(exitCode ?? 1);
             });
-            proc!.on("error", rej);
+            child.on("error", rej);
           });
 
           return { code, stderr: fullStderr };

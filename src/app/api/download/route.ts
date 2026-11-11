@@ -13,7 +13,7 @@ import {
 } from "@/utils/ytdlp-server";
 
 export async function GET(request: Request) {
-  let ytdlpProcess: ReturnType<typeof spawn> | null = null;
+  let ytdlpProcess = null as ReturnType<typeof spawn> | null;
   let tmpDir: string | null = null;
 
   try {
