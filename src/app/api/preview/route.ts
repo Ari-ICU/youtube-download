@@ -10,6 +10,7 @@ import {
   FORMAT_ID_RE,
   isAllowedUrl,
   isTikTokUrl,
+  isYouTubeUrl,
   buildYtDlpArgs,
   buildMergeFormatSelector,
   parseUpscaleFormatId,
@@ -191,38 +192,67 @@ async function getOrBuildCachedFile(
   const buildPromise = (async () => {
     try {
       const outTemplate = resolve(join(PREVIEW_CACHE_DIR, `${cacheKey}.%(ext)s`));
-      await new Promise<void>((resolvePromise, rejectPromise) => {
-        const args = [
-          ...buildYtDlpArgs(decodedUrl),
-          "--no-playlist",
-          "-f",
-          formatSelector,
-          "--merge-output-format",
-          "mp4",
-          "--remux-video",
-          "mp4",
-          "--postprocessor-args",
-          "Merger+ffmpeg_o:-movflags +faststart",
-          "-o",
-          outTemplate,
-          decodedUrl,
-        ];
 
-        const proc = spawn(YTDLP, args);
-        proc.stdout?.on("data", () => {});
-        const errChunks: Buffer[] = [];
-        proc.stderr?.on("data", (c: Buffer | string) =>
-          errChunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
-        );
-        proc.on("close", (code) => {
-          if (code === 0) resolvePromise();
-          else
-            rejectPromise(
-              new Error(`yt-dlp exited ${code}: ${Buffer.concat(errChunks).toString().slice(0, 500)}`)
-            );
+      const runDownload = (useSafariFallback: boolean) =>
+        new Promise<void>((resolvePromise, rejectPromise) => {
+          const baseArgs =
+            useSafariFallback && isYouTubeUrl(decodedUrl)
+              ? [
+                  "--no-warnings",
+                  "--retries",
+                  "10",
+                  "--fragment-retries",
+                  "10",
+                  "--concurrent-fragments",
+                  "4",
+                  "--extractor-args",
+                  "youtube:player_client=web_safari",
+                  "--js-runtimes",
+                  "node",
+                ]
+              : buildYtDlpArgs(decodedUrl);
+
+          const selector = useSafariFallback
+            ? "96/95/94/93/18/best[ext=mp4]/best"
+            : formatSelector;
+
+          const args = [
+            ...baseArgs,
+            "--no-playlist",
+            "-f",
+            selector,
+            "--merge-output-format",
+            "mp4",
+            "--remux-video",
+            "mp4",
+            "--postprocessor-args",
+            "Merger+ffmpeg_o:-movflags +faststart",
+            "-o",
+            outTemplate,
+            decodedUrl,
+          ];
+
+          const proc = spawn(YTDLP, args);
+          proc.stdout?.on("data", () => {});
+          const errChunks: Buffer[] = [];
+          proc.stderr?.on("data", (c: Buffer | string) =>
+            errChunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+          );
+          proc.on("close", (code) => {
+            if (code === 0) resolvePromise();
+            else
+              rejectPromise(
+                new Error(`yt-dlp exited ${code}: ${Buffer.concat(errChunks).toString().slice(0, 500)}`)
+              );
+          });
+          proc.on("error", rejectPromise);
         });
-        proc.on("error", rejectPromise);
-      });
+
+      try {
+        await runDownload(false);
+      } catch {
+        await runDownload(true);
+      }
 
       let finalPath = expectedPath;
       try {

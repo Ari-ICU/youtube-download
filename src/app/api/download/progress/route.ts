@@ -33,7 +33,7 @@ function toMib(val: string, unit: string): number {
 
 function parseLine(line: string): ProgressEvent | null {
   const m = line.match(
-    /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)(MiB|KiB|GiB|B)\s+at\s+([\d.]+)(MiB|KiB|GiB|B)\/s/
+    /\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+)\s*(MiB|KiB|GiB|B)\s+at\s+([\d.]+)\s*(MiB|KiB|GiB|B)\/s/
   );
   if (m) {
     const pct   = parseFloat(m[1]);
@@ -49,7 +49,7 @@ function parseLine(line: string): ProgressEvent | null {
   }
 
   const m2 = line.match(
-    /\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+)(MiB|KiB|GiB|B)/
+    /\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+)\s*(MiB|KiB|GiB|B)/
   );
   if (m2) {
     const pct   = parseFloat(m2[1]);
@@ -148,20 +148,45 @@ export async function GET(request: Request) {
         const { rawFormatId, upscaleTarget } = parseUpscaleFormatId(formatId);
         const baseId = rawFormatId.replace(/-[0-9]+$/, "");
 
-        const buildCommandArgs = (useFallback = false): string[] => {
-          const baseArgs = useFallback && isYouTubeUrl(decodedUrl)
-            ? [
-                "--no-warnings",
-                "--retries",
-                "10",
-                "--fragment-retries",
-                "10",
-                "--extractor-args",
-                "youtube:player_client=android_vr",
-                "--js-runtimes",
-                "node",
-              ]
-            : buildYtDlpArgs(decodedUrl);
+        // 3-tier anti-403 strategy:
+        // Tier 0: default (android_vr + web_safari) direct HTTPS / adaptive streams
+        // Tier 1: web_safari HLS (m3u8_native formats 96/95/94/93 — immune to HTTPS 403)
+        // Tier 2: web_embedded,mweb,web_safari generic best fallback
+        const buildCommandArgs = (tier: 0 | 1 | 2): string[] => {
+          const isYt = isYouTubeUrl(decodedUrl);
+          let baseArgs: string[];
+
+          if (isYt && tier === 1) {
+            baseArgs = [
+              "--no-warnings",
+              "--retries",
+              "10",
+              "--fragment-retries",
+              "10",
+              "--concurrent-fragments",
+              "4",
+              "--extractor-args",
+              "youtube:player_client=web_safari",
+              "--js-runtimes",
+              "node",
+            ];
+          } else if (isYt && tier === 2) {
+            baseArgs = [
+              "--no-warnings",
+              "--retries",
+              "10",
+              "--fragment-retries",
+              "10",
+              "--concurrent-fragments",
+              "4",
+              "--extractor-args",
+              "youtube:player_client=web_embedded,mweb,web_safari",
+              "--js-runtimes",
+              "node",
+            ];
+          } else {
+            baseArgs = buildYtDlpArgs(decodedUrl);
+          }
 
           const args: string[] = [
             ...baseArgs,
@@ -171,17 +196,24 @@ export async function GET(request: Request) {
           ];
 
           if (isAudioOnly) {
-            args.push(
-              "-f",
-              `${rawFormatId}/${baseId}/140/bestaudio[ext=m4a]/bestaudio`,
-              "-x",
-              "--audio-format",
-              "m4a"
-            );
+            const audioSelector =
+              tier === 0
+                ? `${rawFormatId}/${baseId}/140/bestaudio[ext=m4a]/bestaudio/93/18/best`
+                : `bestaudio[ext=m4a]/bestaudio/93/94/18/best`;
+            args.push("-f", audioSelector, "-x", "--audio-format", "m4a");
           } else if (merge || upscaleTarget) {
-            const selector = useFallback
-              ? `${baseId}+140/${baseId}+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+140/bestvideo[height<=2160]+bestaudio[ext=m4a]/best`
-              : buildMergeFormatSelector(formatId);
+            let selector: string;
+            if (tier === 0) {
+              selector = buildMergeFormatSelector(formatId);
+            } else if (tier === 1) {
+              // web_safari provides PO-token-free HLS streams: 96 (1080p), 95 (720p), 94 (480p), 93 (360p)
+              selector =
+                `96/95/bestvideo[height>=1080]+bestaudio/` +
+                `best[height>=720]/94/93/bestvideo+bestaudio/best`;
+            } else {
+              selector = `bestvideo+bestaudio/96/95/94/18/best`;
+            }
+
             args.push(
               "-f",
               selector,
@@ -193,9 +225,15 @@ export async function GET(request: Request) {
               "Merger+ffmpeg_o:-movflags +faststart"
             );
           } else {
+            const singleSelector =
+              tier === 0
+                ? `${rawFormatId}/${baseId}/best[ext=mp4]/best`
+                : tier === 1
+                ? `96/95/94/93/18/best[ext=mp4]/best`
+                : `best[ext=mp4]/best`;
             args.push(
               "-f",
-              `${rawFormatId}/${baseId}/best[ext=mp4]/best`,
+              singleSelector,
               "--merge-output-format",
               "mp4",
               "--remux-video",
@@ -265,15 +303,22 @@ export async function GET(request: Request) {
           return { code, stderr: fullStderr };
         };
 
-        let result = await runAttempt(buildCommandArgs(false));
+        let result = await runAttempt(buildCommandArgs(0));
 
         if (result.code !== 0 && !controllerClosed) {
-          // Clean partial files before retry
           const leftover = await readdir(tmpDir).catch(() => []);
           await Promise.all(
             leftover.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
           );
-          result = await runAttempt(buildCommandArgs(true));
+          result = await runAttempt(buildCommandArgs(1));
+        }
+
+        if (result.code !== 0 && !controllerClosed && isYouTubeUrl(decodedUrl)) {
+          const leftover = await readdir(tmpDir).catch(() => []);
+          await Promise.all(
+            leftover.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
+          );
+          result = await runAttempt(buildCommandArgs(2));
         }
 
         if (result.code !== 0) {

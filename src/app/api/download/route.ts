@@ -72,36 +72,62 @@ export async function GET(request: Request) {
       const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
       const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
 
-      const buildCommandArgs = (useFallback = false): string[] => {
-        const baseArgs = useFallback && isYouTubeUrl(decodedUrl)
-          ? [
-              "--no-warnings",
-              "--retries",
-              "10",
-              "--fragment-retries",
-              "10",
-              "--extractor-args",
-              "youtube:player_client=android_vr",
-              "--js-runtimes",
-              "node",
-            ]
-          : buildYtDlpArgs(decodedUrl);
+      const buildCommandArgs = (tier: 0 | 1 | 2): string[] => {
+        const isYt = isYouTubeUrl(decodedUrl);
+        let baseArgs: string[];
+
+        if (isYt && tier === 1) {
+          baseArgs = [
+            "--no-warnings",
+            "--retries",
+            "10",
+            "--fragment-retries",
+            "10",
+            "--concurrent-fragments",
+            "4",
+            "--extractor-args",
+            "youtube:player_client=web_safari",
+            "--js-runtimes",
+            "node",
+          ];
+        } else if (isYt && tier === 2) {
+          baseArgs = [
+            "--no-warnings",
+            "--retries",
+            "10",
+            "--fragment-retries",
+            "10",
+            "--concurrent-fragments",
+            "4",
+            "--extractor-args",
+            "youtube:player_client=web_embedded,mweb,web_safari",
+            "--js-runtimes",
+            "node",
+          ];
+        } else {
+          baseArgs = buildYtDlpArgs(decodedUrl);
+        }
 
         const ytdlpArgs: string[] = [...baseArgs, "--no-playlist"];
         const baseId = rawFormatId.replace(/-[0-9]+$/, "");
 
         if (isAudioOnly) {
-          ytdlpArgs.push(
-            "-f",
-            `${rawFormatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
-            "-x",
-            "--audio-format",
-            "m4a"
-          );
+          const audioSelector =
+            tier === 0
+              ? `${rawFormatId}/${baseId}/140/bestaudio[ext=m4a]/bestaudio/93/18/best`
+              : `bestaudio[ext=m4a]/bestaudio/93/94/18/best`;
+          ytdlpArgs.push("-f", audioSelector, "-x", "--audio-format", "m4a");
         } else {
-          const formatSelector = useFallback
-            ? `${baseId}+140/${baseId}+251/${baseId}+bestaudio/bestvideo[height<=2160]+bestaudio/best`
-            : buildMergeFormatSelector(formatId);
+          let formatSelector: string;
+          if (tier === 0) {
+            formatSelector = buildMergeFormatSelector(formatId);
+          } else if (tier === 1) {
+            formatSelector =
+              `96/95/bestvideo[height>=1080]+bestaudio/` +
+              `best[height>=720]/94/93/bestvideo+bestaudio/best`;
+          } else {
+            formatSelector = `bestvideo+bestaudio/96/95/94/18/best`;
+          }
 
           ytdlpArgs.push(
             "-f",
@@ -143,13 +169,21 @@ export async function GET(request: Request) {
         });
 
       try {
-        await runMerge(buildCommandArgs(false));
+        await runMerge(buildCommandArgs(0));
       } catch {
         const leftover = await readdir(tmpDir).catch(() => []);
         await Promise.all(
           leftover.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
         );
-        await runMerge(buildCommandArgs(true));
+        try {
+          await runMerge(buildCommandArgs(1));
+        } catch {
+          const leftover2 = await readdir(tmpDir).catch(() => []);
+          await Promise.all(
+            leftover2.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
+          );
+          await runMerge(buildCommandArgs(2));
+        }
       }
 
       let finalFilePath = expectedOutPath;
