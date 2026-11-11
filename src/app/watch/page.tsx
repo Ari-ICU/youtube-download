@@ -25,7 +25,6 @@ import {
   Tv,
   Radio,
   ChevronDown,
-  Scissors,
   PictureInPicture2,
 } from "lucide-react";
 
@@ -142,6 +141,7 @@ function WatchPageContent() {
   const [retryCount, setRetryCount] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
   const platform: Platform = detectPlatformFromUrl(activeUrl) ?? "youtube";
@@ -183,7 +183,7 @@ function WatchPageContent() {
           setData({ details: cached.details, formats: cached.formats });
           const combined = getCombinedFormats(cached.formats);
           const adaptive = getAdaptiveFormats(cached.formats);
-          setSelectedStreamFormat(combined[0] ?? adaptive[0] ?? null);
+          setSelectedStreamFormat(adaptive[0] ?? combined[0] ?? null);
           return;
         }
       }
@@ -199,7 +199,7 @@ function WatchPageContent() {
       setData(json);
       const combined = getCombinedFormats(json.formats ?? []);
       const adaptive = getAdaptiveFormats(json.formats ?? []);
-      setSelectedStreamFormat(combined[0] ?? adaptive[0] ?? null);
+      setSelectedStreamFormat(adaptive[0] ?? combined[0] ?? null);
       try {
         sessionStorage.setItem(
           "anivora-watch-cache",
@@ -275,55 +275,97 @@ function WatchPageContent() {
     }
   };
 
-  // Stream player helpers
+  // Stream player helpers (full-length playback for both adaptive 4K/2K/1080p and combined streams)
   const combinedFormats = data ? getCombinedFormats(data.formats) : [];
   const adaptiveFormats = data ? getAdaptiveFormats(data.formats) : [];
-  const allStreamFormats = [...combinedFormats, ...adaptiveFormats];
-  const isClipStream = selectedStreamFormat
+  const allStreamFormats = [...adaptiveFormats, ...combinedFormats];
+  const needsDualAudio = selectedStreamFormat
     ? selectedStreamFormat.hasVideo && !selectedStreamFormat.hasAudio
     : false;
+
+  const bestAudioItag =
+    data?.formats.find((f) => !f.hasVideo && f.hasAudio && f.container === "m4a")?.itag ??
+    data?.formats.find((f) => !f.hasVideo && f.hasAudio)?.itag ??
+    "140";
 
   const streamSrc =
     effectivePlayerMode === "stream" && activeUrl && selectedStreamFormat
       ? `/api/preview?url=${encodeURIComponent(activeUrl)}&itag=${encodeURIComponent(
           selectedStreamFormat.itag
-        )}${isClipStream ? "&clip=true" : ""}&r=${retryCount}`
+        )}&r=${retryCount}`
       : null;
+
+  const audioStreamSrc =
+    effectivePlayerMode === "stream" && activeUrl && needsDualAudio
+      ? `/api/preview?url=${encodeURIComponent(activeUrl)}&itag=${encodeURIComponent(
+          bestAudioItag
+        )}&r=${retryCount}`
+      : null;
+
+  const syncAudioToVideo = () => {
+    const v = videoRef.current;
+    const a = audioRef.current;
+    if (!v || !a || !needsDualAudio) return;
+    if (Math.abs(a.currentTime - v.currentTime) > 0.25) {
+      a.currentTime = v.currentTime;
+    }
+  };
 
   const togglePlay = () => {
     const v = videoRef.current;
+    const a = audioRef.current;
     if (!v) return;
     if (v.paused) {
       v.play().catch(() => {});
+      if (a && needsDualAudio) {
+        a.currentTime = v.currentTime;
+        a.play().catch(() => {});
+      }
       setPlaying(true);
     } else {
       v.pause();
+      a?.pause();
       setPlaying(false);
     }
   };
 
   const toggleMute = () => {
     const v = videoRef.current;
+    const a = audioRef.current;
     if (!v) return;
-    v.muted = !v.muted;
-    setMuted(v.muted);
+    const nextMuted = !muted;
+    v.muted = nextMuted;
+    if (a) a.muted = nextMuted;
+    setMuted(nextMuted);
   };
 
   const handleVolumeChange = (val: number) => {
     const v = videoRef.current;
+    const a = audioRef.current;
     setVolume(val);
-    if (!v) return;
-    v.volume = val;
-    v.muted = val === 0;
-    setMuted(val === 0);
+    const isZero = val === 0;
+    setMuted(isZero);
+    if (v) {
+      v.volume = val;
+      v.muted = isZero;
+    }
+    if (a) {
+      a.volume = val;
+      a.muted = isZero;
+    }
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     const v = videoRef.current;
+    const a = audioRef.current;
     if (!v || !duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    v.currentTime = ratio * duration;
+    const targetTime = ratio * duration;
+    v.currentTime = targetTime;
+    if (a && needsDualAudio) {
+      a.currentTime = targetTime;
+    }
   };
 
   const handleSpeedChange = (rate: number) => {
@@ -331,6 +373,9 @@ function WatchPageContent() {
     setSpeedMenuOpen(false);
     if (videoRef.current) {
       videoRef.current.playbackRate = rate;
+    }
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
     }
   };
 
@@ -583,14 +628,16 @@ function WatchPageContent() {
                     className="w-full h-full border-0"
                   />
                 ) : (
-                  /* Direct HTML5 Video Stream Player */
+                  /* Direct HTML5 Video Stream Player (Full-Length 4K/2K/HD/SD) */
                   <div className="relative w-full h-full flex flex-col justify-between bg-black group select-none">
-                    {/* Clip notice banner */}
-                    {isClipStream && (
-                      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/80 border border-violet-500/30 backdrop-blur-md">
-                        <Scissors className="w-3.5 h-3.5 text-violet-400" />
-                        <span className="text-[11px] font-bold text-violet-200">
-                          {selectedStreamFormat?.qualityLabel} 30s Merged Preview
+                    {/* Resolution badge */}
+                    {selectedStreamFormat && (
+                      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/75 border border-white/15 backdrop-blur-md">
+                        {selectedStreamFormat.height >= 1440 && (
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span className="text-[11px] font-bold text-zinc-200">
+                          {selectedStreamFormat.qualityLabel} Full Stream
                         </span>
                       </div>
                     )}
@@ -600,9 +647,7 @@ function WatchPageContent() {
                       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-xs">
                         <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
                         <p className="text-xs font-semibold text-zinc-300">
-                          {isClipStream
-                            ? `Merging ${selectedStreamFormat?.qualityLabel} video + audio stream…`
-                            : `Loading ${selectedStreamFormat?.qualityLabel ?? "video"} stream…`}
+                          Loading {selectedStreamFormat?.qualityLabel ?? "video"} full stream…
                         </p>
                       </div>
                     )}
@@ -637,6 +682,16 @@ function WatchPageContent() {
                       </div>
                     )}
 
+                    {/* Synchronized audio track for adaptive 4K/2K/1080p/720p streams */}
+                    {audioStreamSrc && (
+                      <audio
+                        ref={audioRef}
+                        key={audioStreamSrc}
+                        src={audioStreamSrc}
+                        preload="auto"
+                      />
+                    )}
+
                     {streamSrc && (
                       <video
                         ref={videoRef}
@@ -644,15 +699,36 @@ function WatchPageContent() {
                         src={streamSrc}
                         poster={getProxyUrl(data.details.thumbnail)}
                         className="w-full h-full object-contain"
+                        style={
+                          selectedStreamFormat && selectedStreamFormat.height >= 1440
+                            ? { filter: "contrast(1.04) saturate(1.06)" }
+                            : undefined
+                        }
                         playsInline
                         autoPlay
-                        onPlay={() => setPlaying(true)}
-                        onPause={() => setPlaying(false)}
+                        onPlay={() => {
+                          setPlaying(true);
+                          if (audioRef.current && needsDualAudio) {
+                            syncAudioToVideo();
+                            audioRef.current.play().catch(() => {});
+                          }
+                        }}
+                        onPause={() => {
+                          setPlaying(false);
+                          audioRef.current?.pause();
+                        }}
+                        onSeeking={syncAudioToVideo}
+                        onSeeked={syncAudioToVideo}
                         onLoadedMetadata={() => {
                           const v = videoRef.current;
                           if (!v) return;
                           setDuration(v.duration || data.details.duration || 0);
                           v.playbackRate = playbackRate;
+                          if (audioRef.current) {
+                            audioRef.current.playbackRate = playbackRate;
+                            audioRef.current.volume = volume;
+                            audioRef.current.muted = muted;
+                          }
                           setStreamLoading(false);
                         }}
                         onTimeUpdate={() => {
@@ -662,12 +738,26 @@ function WatchPageContent() {
                           if (v.buffered.length > 0) {
                             setBuffered(v.buffered.end(v.buffered.length - 1));
                           }
+                          syncAudioToVideo();
                         }}
-                        onWaiting={() => setStreamLoading(true)}
-                        onCanPlay={() => setStreamLoading(false)}
-                        onEnded={() => setPlaying(false)}
+                        onWaiting={() => {
+                          setStreamLoading(true);
+                          audioRef.current?.pause();
+                        }}
+                        onCanPlay={() => {
+                          setStreamLoading(false);
+                          if (videoRef.current && !videoRef.current.paused && audioRef.current && needsDualAudio) {
+                            syncAudioToVideo();
+                            audioRef.current.play().catch(() => {});
+                          }
+                        }}
+                        onEnded={() => {
+                          setPlaying(false);
+                          audioRef.current?.pause();
+                        }}
                         onError={() => {
                           setStreamLoading(false);
+                          audioRef.current?.pause();
                           setStreamError("Stream playback interrupted or unavailable in this format.");
                         }}
                         onClick={togglePlay}
@@ -794,67 +884,36 @@ function WatchPageContent() {
                               </button>
                               {qualityMenuOpen && (
                                 <div className="absolute bottom-full right-0 mb-2 bg-zinc-900 border border-white/15 rounded-xl shadow-2xl overflow-hidden z-50 min-w-[170px] max-h-64 overflow-y-auto">
-                                  {combinedFormats.length > 0 && (
-                                    <>
-                                      <p className="text-[9px] font-extrabold text-zinc-500 uppercase tracking-widest px-3 pt-2 pb-1">
-                                        Full Stream
-                                      </p>
-                                      {combinedFormats.map((f) => (
-                                        <button
-                                          key={f.itag}
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedStreamFormat(f);
-                                            setQualityMenuOpen(false);
-                                            setStreamLoading(true);
-                                            setStreamError(null);
-                                          }}
-                                          className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer ${
-                                            selectedStreamFormat?.itag === f.itag
-                                              ? "bg-violet-500/25 text-violet-300"
-                                              : "text-zinc-300 hover:bg-white/10"
-                                          }`}
-                                        >
-                                          <span>{f.qualityLabel}</span>
-                                          {selectedStreamFormat?.itag === f.itag && (
-                                            <Check className="w-3.5 h-3.5" />
-                                          )}
-                                        </button>
-                                      ))}
-                                    </>
-                                  )}
-                                  {adaptiveFormats.length > 0 && (
-                                    <>
-                                      <p className="text-[9px] font-extrabold text-zinc-500 uppercase tracking-widest px-3 pt-2 pb-1 border-t border-white/10">
-                                        30s UHD Clip Preview
-                                      </p>
-                                      {adaptiveFormats.map((f) => (
-                                        <button
-                                          key={f.itag}
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedStreamFormat(f);
-                                            setQualityMenuOpen(false);
-                                            setStreamLoading(true);
-                                            setStreamError(null);
-                                          }}
-                                          className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer ${
-                                            selectedStreamFormat?.itag === f.itag
-                                              ? "bg-amber-500/25 text-amber-300"
-                                              : "text-zinc-300 hover:bg-white/10"
-                                          }`}
-                                        >
-                                          <span className="flex items-center gap-1.5">
-                                            <Sparkles className="w-3 h-3 text-amber-400" />
-                                            {f.qualityLabel}
-                                          </span>
-                                          {selectedStreamFormat?.itag === f.itag && (
-                                            <Check className="w-3.5 h-3.5" />
-                                          )}
-                                        </button>
-                                      ))}
-                                    </>
-                                  )}
+                                  <p className="text-[9px] font-extrabold text-zinc-500 uppercase tracking-widest px-3 pt-2 pb-1">
+                                    Stream Resolution
+                                  </p>
+                                  {allStreamFormats.map((f) => (
+                                    <button
+                                      key={f.itag}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedStreamFormat(f);
+                                        setQualityMenuOpen(false);
+                                        setStreamLoading(true);
+                                        setStreamError(null);
+                                      }}
+                                      className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between cursor-pointer ${
+                                        selectedStreamFormat?.itag === f.itag
+                                          ? "bg-violet-500/25 text-violet-300"
+                                          : "text-zinc-300 hover:bg-white/10"
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-1.5">
+                                        {f.height >= 1440 && (
+                                          <Sparkles className="w-3 h-3 text-amber-400" />
+                                        )}
+                                        {f.qualityLabel}
+                                      </span>
+                                      {selectedStreamFormat?.itag === f.itag && (
+                                        <Check className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                  ))}
                                 </div>
                               )}
                             </div>

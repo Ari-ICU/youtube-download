@@ -13,6 +13,7 @@ import {
   buildYtDlpArgs,
   buildMergeFormatSelector,
   parseUpscaleFormatId,
+  ensureQuickTimeMp4,
 } from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
@@ -20,11 +21,88 @@ const execFileAsync = promisify(execFile);
 const PREVIEW_CACHE_DIR = join(tmpdir(), "anivora-preview-cache");
 const inFlightBuilds = new Map<string, Promise<string>>();
 
+interface ResolvedStream {
+  streamUrl: string;
+  headers: Record<string, string>;
+  expiresAt: number;
+}
+
+const STREAM_URL_TTL_MS = 25 * 60 * 1000; // 25 minutes
+const resolvedStreamCache = new Map<string, ResolvedStream>();
+const inFlightResolutions = new Map<string, Promise<ResolvedStream | null>>();
+
+/** Resolve and cache the direct upstream CDN URL + required client headers. */
+async function resolveDirectStream(
+  decodedUrl: string,
+  rawFormatId: string
+): Promise<ResolvedStream | null> {
+  const key = `${decodedUrl}|${rawFormatId}`;
+  const now = Date.now();
+  const cached = resolvedStreamCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached;
+  }
+
+  const inflight = inFlightResolutions.get(key);
+  if (inflight) return inflight;
+
+  const baseId = rawFormatId.replace(/-[0-9]+$/, "");
+  const selector =
+    rawFormatId === "140" || rawFormatId === "audio"
+      ? "140/bestaudio[ext=m4a]/bestaudio"
+      : baseId !== rawFormatId
+      ? `${rawFormatId}/${baseId}/18/best[ext=mp4]/best`
+      : `${rawFormatId}/18/best[ext=mp4]/best`;
+
+  const promise = (async (): Promise<ResolvedStream | null> => {
+    try {
+      const { stdout } = await execFileAsync(
+        YTDLP,
+        [
+          ...buildYtDlpArgs(decodedUrl),
+          "--dump-single-json",
+          "--no-playlist",
+          "-f",
+          selector,
+          decodedUrl,
+        ],
+        { maxBuffer: 10 * 1024 * 1024, timeout: 15_000 }
+      );
+
+      const info = JSON.parse(stdout);
+      const streamUrl: string | undefined = info.url ?? info.requested_formats?.[0]?.url;
+      const ytHeaders: Record<string, string> =
+        info.http_headers ?? info.requested_formats?.[0]?.http_headers ?? {};
+
+      if (streamUrl && streamUrl.startsWith("https://") && !info.requested_formats) {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(ytHeaders)) {
+          if (typeof v === "string") headers[k] = v;
+        }
+        const entry: ResolvedStream = {
+          streamUrl,
+          headers,
+          expiresAt: Date.now() + STREAM_URL_TTL_MS,
+        };
+        resolvedStreamCache.set(key, entry);
+        return entry;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      inFlightResolutions.delete(key);
+    }
+  })();
+
+  inFlightResolutions.set(key, promise);
+  return promise;
+}
+
 /** Serve a local MP4 file with full HTTP Range (206 Partial Content) support for HTML5 <video>. */
 async function serveFileWithRange(
   filePath: string,
-  rangeHeader: string | null,
-  isClip = false
+  rangeHeader: string | null
 ): Promise<Response> {
   const { size } = await stat(filePath);
 
@@ -58,8 +136,7 @@ async function serveFileWithRange(
             "Content-Range": `bytes ${start}-${end}/${size}`,
             "Content-Length": String(chunkLength),
             "Accept-Ranges": "bytes",
-            "Cache-Control": "private, max-age=300",
-            ...(isClip ? { "X-Preview-Clip": "true" } : {}),
+            "Cache-Control": "private, max-age=600",
           },
         });
       }
@@ -87,17 +164,15 @@ async function serveFileWithRange(
       "Content-Type": "video/mp4",
       "Content-Length": String(size),
       "Accept-Ranges": "bytes",
-      "Cache-Control": "private, max-age=300",
-      ...(isClip ? { "X-Preview-Clip": "true" } : {}),
+      "Cache-Control": "private, max-age=600",
     },
   });
 }
 
-/** Build or reuse a cached MP4 file for reliable HTML5 <video> playback and scrubbing. */
+/** Build or reuse a full-length cached MP4 file for streams that require session cookies/muxing. */
 async function getOrBuildCachedFile(
   decodedUrl: string,
   formatSelector: string,
-  sectionArg: string | null,
   cacheKey: string
 ): Promise<string> {
   await mkdir(PREVIEW_CACHE_DIR, { recursive: true });
@@ -130,9 +205,8 @@ async function getOrBuildCachedFile(
           "Merger+ffmpeg_o:-movflags +faststart",
           "-o",
           outTemplate,
+          decodedUrl,
         ];
-        if (sectionArg) args.push("--download-sections", sectionArg);
-        args.push(decodedUrl);
 
         const proc = spawn(YTDLP, args);
         proc.stdout?.on("data", () => {});
@@ -150,17 +224,20 @@ async function getOrBuildCachedFile(
         proc.on("error", rejectPromise);
       });
 
+      let finalPath = expectedPath;
       try {
-        await stat(expectedPath);
-        return expectedPath;
+        await stat(finalPath);
       } catch {
         const files = await readdir(PREVIEW_CACHE_DIR);
         const candidate = files.find(
           (f) => f.startsWith(`${cacheKey}.`) && !f.endsWith(".part") && !f.endsWith(".ytdl")
         );
         if (!candidate) throw new Error("Preview output file not found.");
-        return resolve(join(PREVIEW_CACHE_DIR, candidate));
+        finalPath = resolve(join(PREVIEW_CACHE_DIR, candidate));
       }
+
+      // Ensure HEVC (TikTok) / MP4 streams are browser & QuickTime compatible
+      return await ensureQuickTimeMp4(finalPath, PREVIEW_CACHE_DIR, null);
     } finally {
       inFlightBuilds.delete(cacheKey);
     }
@@ -175,7 +252,6 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const url      = searchParams.get("url");
     const formatId = searchParams.get("itag") ?? "18";
-    const isClip   = searchParams.get("clip") === "true";
 
     if (!url) {
       return Response.json({ error: "url is required" }, { status: 400 });
@@ -197,76 +273,51 @@ export async function GET(request: Request) {
     const rangeHeader = request.headers.get("range");
     const { rawFormatId } = parseUpscaleFormatId(formatId);
     const cacheKey = createHash("sha1")
-      .update(`${decodedUrl}|${rawFormatId}|${isClip ? "clip" : "full"}`)
+      .update(`${decodedUrl}|${rawFormatId}|full`)
       .digest("hex")
       .slice(0, 24);
 
-    // 1. Adaptive clip or TikTok stream (TikTok CDN requires yt-dlp's session cookies)
-    if (isClip || isTikTokUrl(decodedUrl)) {
-      const formatSelector = isClip
-        ? buildMergeFormatSelector(rawFormatId)
-        : `${rawFormatId}/best[ext=mp4]/best`;
-
+    // 1. TikTok streams require yt-dlp's session cookies — cache full video and serve with Range
+    if (isTikTokUrl(decodedUrl)) {
       const filePath = await getOrBuildCachedFile(
         decodedUrl,
-        formatSelector,
-        isClip ? "*0:00-0:30" : null,
+        `${rawFormatId}/best[ext=mp4]/best`,
         cacheKey
       );
-      return await serveFileWithRange(filePath, rangeHeader, isClip);
+      return await serveFileWithRange(filePath, rangeHeader);
     }
 
-    // 2. Direct combined stream (YouTube / Facebook): resolve URL + exact client headers
-    try {
-      const { stdout } = await execFileAsync(
-        YTDLP,
-        [
-          ...buildYtDlpArgs(decodedUrl),
-          "--dump-single-json",
-          "--no-playlist",
-          "-f",
-          `${rawFormatId}/18/best[ext=mp4]/best`,
-          decodedUrl,
-        ],
-        { maxBuffer: 10 * 1024 * 1024, timeout: 15_000 }
-      );
+    // 2. Direct full-length CDN proxy (YouTube & Facebook — supports video-only, audio-only, and combined)
+    const resolved = await resolveDirectStream(decodedUrl, rawFormatId);
+    if (resolved) {
+      const upstreamHeaders: Record<string, string> = { ...resolved.headers };
+      if (rangeHeader) upstreamHeaders["Range"] = rangeHeader;
 
-      const info = JSON.parse(stdout);
-      const streamUrl: string | undefined = info.url ?? info.requested_formats?.[0]?.url;
-      const ytHeaders: Record<string, string> =
-        info.http_headers ?? info.requested_formats?.[0]?.http_headers ?? {};
-
-      // Only proxy directly if it's a single combined stream (not separate video+audio)
-      if (streamUrl && streamUrl.startsWith("https://") && !info.requested_formats) {
-        const upstreamHeaders: Record<string, string> = {};
-        for (const [k, v] of Object.entries(ytHeaders)) {
-          if (typeof v === "string") upstreamHeaders[k] = v;
+      const upstream = await fetch(resolved.streamUrl, { headers: upstreamHeaders });
+      if (upstream.ok || upstream.status === 206) {
+        const responseHeaders = new Headers();
+        for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+          const v = upstream.headers.get(h);
+          if (v) responseHeaders.set(h, v);
         }
-        if (rangeHeader) upstreamHeaders["Range"] = rangeHeader;
-
-        const upstream = await fetch(streamUrl, { headers: upstreamHeaders });
-        if (upstream.ok || upstream.status === 206) {
-          const responseHeaders = new Headers();
-          for (const h of ["content-type", "content-length", "content-range", "accept-ranges"]) {
-            const v = upstream.headers.get(h);
-            if (v) responseHeaders.set(h, v);
-          }
-          responseHeaders.set("Cache-Control", "no-store");
-
-          return new Response(upstream.body, {
-            status: upstream.status,
-            headers: responseHeaders,
-          });
+        if (!responseHeaders.has("accept-ranges")) {
+          responseHeaders.set("Accept-Ranges", "bytes");
         }
+        responseHeaders.set("Cache-Control", "private, max-age=300");
+
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers: responseHeaders,
+        });
       }
-    } catch {
-      /* Fall through to cached file build */
+      // If upstream URL expired or failed, evict from cache
+      resolvedStreamCache.delete(`${decodedUrl}|${rawFormatId}`);
     }
 
-    // 3. Fallback: download/mux into cached file and serve with Range support
+    // 3. Fallback: download full stream into cache and serve with Range support
     const fallbackSelector = buildMergeFormatSelector(rawFormatId);
-    const filePath = await getOrBuildCachedFile(decodedUrl, fallbackSelector, null, cacheKey);
-    return await serveFileWithRange(filePath, rangeHeader, false);
+    const filePath = await getOrBuildCachedFile(decodedUrl, fallbackSelector, cacheKey);
+    return await serveFileWithRange(filePath, rangeHeader);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to get preview.";
     console.error("Error in /api/preview:", msg);
