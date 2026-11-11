@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import JSZip from "jszip";
 import {
@@ -45,8 +46,6 @@ import { PLATFORM_CONFIGS } from "@/utils/platforms";
 import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import Dropdown, { type DropdownOption } from "@/components/ui/Dropdown";
-import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
-import DownloadToast from "@/components/ui/DownloadToast";
 import PlaylistToast, { type PlaylistQueueItem } from "@/components/ui/PlaylistToast";
 
 const QUALITY_OPTIONS: DropdownOption<QualityPreference>[] = [
@@ -92,6 +91,7 @@ export default function PlaylistDownloader({
   platform,
   onPlatformChange,
 }: PlaylistDownloaderProps) {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [playlistData, setPlaylistData] = useState<PlaylistDetails | null>(null);
@@ -108,16 +108,6 @@ export default function PlaylistDownloader({
 
   const cfg = PLATFORM_CONFIGS[platform];
 
-  // Per-video format preview
-  const [previewFormats, setPreviewFormats] = useState<
-    Record<string, VideoFormat[] | "loading" | "error">
-  >({});
-  const [modalVideo, setModalVideo] = useState<PlaylistVideo | null>(null);
-
-  // Single-video download toast
-  const [singleDownloadState, setSingleDownloadState] = useState<DownloadState | null>(null);
-  const [singleDownloadTitle, setSingleDownloadTitle] = useState<string>("");
-
   // Playlist batch toast state
   const [playlistToastItems, setPlaylistToastItems] = useState<PlaylistQueueItem[]>([]);
   const [playlistToastVisible, setPlaylistToastVisible] = useState(false);
@@ -132,19 +122,9 @@ export default function PlaylistDownloader({
     }
   };
 
-  const openPreview = async (video: PlaylistVideo, e: React.MouseEvent) => {
+  const openPreview = (video: PlaylistVideo, e: React.MouseEvent) => {
     e.stopPropagation();
-    setModalVideo(video);
-    if (previewFormats[video.id] && previewFormats[video.id] !== "error") return;
-    setPreviewFormats((p) => ({ ...p, [video.id]: "loading" }));
-    try {
-      const res = await fetch(`/api/info?url=${encodeURIComponent(video.url)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setPreviewFormats((p) => ({ ...p, [video.id]: json.formats }));
-    } catch {
-      setPreviewFormats((p) => ({ ...p, [video.id]: "error" }));
-    }
+    router.push(`/watch?url=${encodeURIComponent(video.url)}`);
   };
 
   const handleAnalyze = async () => {
@@ -282,35 +262,6 @@ export default function PlaylistDownloader({
         v.title.toLowerCase().includes(playlistSearch.toLowerCase())
       )
     : [];
-
-  const handleSingleDownload = (
-    video: PlaylistVideo,
-    itag: string,
-    needsMerge: boolean
-  ) => {
-    const formats = previewFormats[video.id];
-    const format = Array.isArray(formats) ? formats.find((f) => f.itag === itag) : undefined;
-    const isAudio = !format?.hasVideo && !!format?.hasAudio;
-    const height = format?.height ?? 0;
-    const size =
-      format?.contentLength ??
-      (video.duration > 0 ? estimateSize(video.duration, height, isAudio) : 10 * 1024 * 1024);
-
-    setSingleDownloadTitle(video.title);
-
-    import("@/utils/downloader").then(({ executeDownload }) => {
-      executeDownload(
-        video.url,
-        itag,
-        video.title,
-        video.id,
-        (state) => setSingleDownloadState(state),
-        size,
-        needsMerge,
-        isAudio
-      );
-    });
-  };
 
   const startDownloadQueue = async () => {
     if (!playlistData || selectedVideos.size === 0 || isDownloading) return;
@@ -506,13 +457,6 @@ export default function PlaylistDownloader({
 
       {error && <ErrorBanner title="Failed to Extract Playlist" message={error} />}
 
-      {/* Floating single-video download toast */}
-      <DownloadToast
-        state={singleDownloadState}
-        title={singleDownloadTitle}
-        onDismiss={() => setSingleDownloadState(null)}
-      />
-
       {/* Floating playlist batch progress toast */}
       {playlistToastVisible && (
         <PlaylistToast
@@ -525,29 +469,6 @@ export default function PlaylistDownloader({
           onDismiss={() => {
             setPlaylistToastVisible(false);
             setPlaylistToastItems([]);
-          }}
-        />
-      )}
-
-      {/* Video preview modal */}
-      {modalVideo && Array.isArray(previewFormats[modalVideo.id]) && (
-        <VideoPreviewModal
-          details={{
-            videoId: modalVideo.id,
-            title: modalVideo.title,
-            author: modalVideo.author,
-            authorUrl: modalVideo.url,
-            thumbnail: getProxyUrl(modalVideo.thumbnail),
-            duration: modalVideo.duration,
-            views: 0,
-            description: "",
-          }}
-          formats={previewFormats[modalVideo.id] as VideoFormat[]}
-          videoUrl={modalVideo.url}
-          onClose={() => setModalVideo(null)}
-          onDownload={(itag, needsMerge) => {
-            setModalVideo(null);
-            handleSingleDownload(modalVideo, itag, needsMerge);
           }}
         />
       )}

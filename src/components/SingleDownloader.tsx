@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Clock,
@@ -27,7 +28,6 @@ import UrlInput from "@/components/ui/UrlInput";
 import ErrorBanner from "@/components/ui/ErrorBanner";
 import DownloadToast from "@/components/ui/DownloadToast";
 import QualityPreview from "@/components/ui/QualityPreview";
-import VideoPreviewModal from "@/components/ui/VideoPreviewModal";
 
 interface SingleDownloaderProps {
   platform: Platform;
@@ -38,6 +38,7 @@ export default function SingleDownloader({
   platform,
   onPlatformChange,
 }: SingleDownloaderProps) {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [data, setData] = useState<{
@@ -47,7 +48,6 @@ export default function SingleDownloader({
   const [error, setError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<DownloadState | null>(null);
   const [downloadTitle, setDownloadTitle] = useState<string>("");
-  const [previewOpen, setPreviewOpen] = useState(false);
 
   const cfg = PLATFORM_CONFIGS[platform];
 
@@ -127,8 +127,27 @@ export default function SingleDownloader({
     setUrl("");
   };
 
+  const handleOpenWatch = () => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    if (data) {
+      try {
+        sessionStorage.setItem(
+          "anivora-watch-cache",
+          JSON.stringify({
+            url: trimmed,
+            details: data.details,
+            formats: data.formats,
+          })
+        );
+      } catch {
+        /* ignore storage quota */
+      }
+    }
+    router.push(`/watch?url=${encodeURIComponent(trimmed)}`);
+  };
+
   const isDownloading = downloadState?.status === "downloading";
-  const canPreview = (detectPlatformFromUrl(url) ?? platform) === "youtube";
 
   return (
     <div className="w-full flex flex-col items-center">
@@ -152,20 +171,6 @@ export default function SingleDownloader({
         title={downloadTitle}
         onDismiss={() => setDownloadState(null)}
       />
-
-      {/* Video preview modal */}
-      {data && previewOpen && canPreview && (
-        <VideoPreviewModal
-          details={data.details}
-          formats={data.formats}
-          videoUrl={url.trim()}
-          onClose={() => setPreviewOpen(false)}
-          onDownload={(itag, needsMerge) => {
-            setPreviewOpen(false);
-            handleDownload(itag, needsMerge);
-          }}
-        />
-      )}
 
       {/* ── Idle Feature Highlights ── */}
       {!data && !isAnalyzing && !error && (
@@ -273,19 +278,17 @@ export default function SingleDownloader({
                   </div>
                 )}
 
-                {/* Preview button (YouTube) */}
-                {canPreview && (
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(true)}
-                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/45 cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/80 border border-white/20 text-xs font-bold text-white hover:bg-violet-600/90 transition-colors shadow-xl">
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Preview Stream</span>
-                    </div>
-                  </button>
-                )}
+                {/* Watch / Preview button */}
+                <button
+                  type="button"
+                  onClick={handleOpenWatch}
+                  className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/45 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-black/80 border border-white/20 text-xs font-bold text-white hover:bg-violet-600/90 transition-colors shadow-xl">
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Watch Video</span>
+                  </div>
+                </button>
               </div>
 
               <div>
@@ -351,16 +354,14 @@ export default function SingleDownloader({
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 pt-1">
-                {canPreview && (
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] transition-colors cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5 text-violet-400" />
-                    <span>Preview</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleOpenWatch}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold bg-violet-500/15 hover:bg-violet-500/25 text-violet-200 border border-violet-500/30 transition-colors cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 text-violet-400 fill-current" />
+                  <span>Watch / Preview</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleReset}
