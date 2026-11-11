@@ -11,6 +11,7 @@ import {
   buildYtDlpArgs,
   buildMergeFormatSelector,
   parseUpscaleFormatId,
+  ensureQuickTimeMp4,
 } from "@/utils/ytdlp-server";
 
 export async function GET(request: Request) {
@@ -165,40 +166,16 @@ export async function GET(request: Request) {
         finalFilePath = resolve(join(tmpDir, candidate));
       }
 
-      if (upscaleTarget) {
-        const targetLong = upscaleTarget === "4k" ? 3840 : 2560;
-        const upscaledPath = resolve(join(tmpDir, `upscaled-${upscaleTarget}.mp4`));
-
-        const ffExit = await new Promise<number>((res, rej) => {
-          const ffProc = spawn("ffmpeg", [
-            "-y",
-            "-i",
-            finalFilePath,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "20",
-            "-vf",
-            `scale='if(gt(iw,ih),${targetLong},-2)':'if(gt(iw,ih),-2,${targetLong})',format=yuv420p`,
-            "-c:a",
-            "copy",
-            "-movflags",
-            "+faststart",
-            upscaledPath,
-          ]);
-          ytdlpProcess = ffProc;
-          ffProc.stdout?.on("data", () => {});
-          ffProc.stderr?.on("data", () => {});
-          ffProc.on("close", (c) => res(c ?? 1));
-          ffProc.on("error", rej);
-        });
-
-        if (ffExit === 0) {
-          await rm(finalFilePath, { force: true }).catch(() => {});
-          finalFilePath = upscaledPath;
-        }
+      if (!isAudioOnly) {
+        finalFilePath = await ensureQuickTimeMp4(
+          finalFilePath,
+          tmpDir,
+          upscaleTarget,
+          undefined,
+          (ffProc) => {
+            ytdlpProcess = ffProc;
+          }
+        );
       }
 
       const { size } = await stat(finalFilePath);

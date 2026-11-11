@@ -136,7 +136,7 @@ async function streamToFile(
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(blobUrl);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 
   return formatBytes(receivedBytes);
 }

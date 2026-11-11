@@ -10,6 +10,7 @@ import {
   buildYtDlpArgs,
   buildMergeFormatSelector,
   parseUpscaleFormatId,
+  ensureQuickTimeMp4,
 } from "@/utils/ytdlp-server";
 import { registerToken } from "@/utils/token-registry";
 
@@ -172,14 +173,14 @@ export async function GET(request: Request) {
           if (isAudioOnly) {
             args.push(
               "-f",
-              `${rawFormatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
+              `${rawFormatId}/${baseId}/140/bestaudio[ext=m4a]/bestaudio`,
               "-x",
               "--audio-format",
               "m4a"
             );
           } else if (merge || upscaleTarget) {
             const selector = useFallback
-              ? `${baseId}+140/${baseId}+251/${baseId}+bestaudio/bestvideo[height<=2160]+bestaudio/best`
+              ? `${baseId}+140/${baseId}+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+140/bestvideo[height<=2160]+bestaudio[ext=m4a]/best`
               : buildMergeFormatSelector(formatId);
             args.push(
               "-f",
@@ -299,49 +300,25 @@ export async function GET(request: Request) {
           finalFilePath = resolve(join(tmpDir, candidate));
         }
 
-        // If user selected a synthesized 4K (2160p) or 2K (1440p) Ultra HD stream,
-        // scale the merged source MP4 to 3840×2160 or 2560×1440 via FFmpeg.
-        if (upscaleTarget && !controllerClosed) {
-          const targetLong = upscaleTarget === "4k" ? 3840 : 2560;
-          const upscaledPath = resolve(join(tmpDir, `upscaled-${upscaleTarget}.mp4`));
-
-          safeSend("progress", {
-            percent: 99,
-            downloadedMb: "—",
-            speedMbps: `${upscaleTarget.toUpperCase()} UHD encoding…`,
-            phase: "merging",
-          });
-
-          const ffExit = await new Promise<number>((res, rej) => {
-            const ffProc = spawn("ffmpeg", [
-              "-y",
-              "-i",
-              finalFilePath,
-              "-c:v",
-              "libx264",
-              "-preset",
-              "ultrafast",
-              "-crf",
-              "20",
-              "-vf",
-              `scale='if(gt(iw,ih),${targetLong},-2)':'if(gt(iw,ih),-2,${targetLong})',format=yuv420p`,
-              "-c:a",
-              "copy",
-              "-movflags",
-              "+faststart",
-              upscaledPath,
-            ]);
-            proc = ffProc;
-            ffProc.stdout?.on("data", () => {});
-            ffProc.stderr?.on("data", () => {});
-            ffProc.on("close", (c) => res(c ?? 1));
-            ffProc.on("error", rej);
-          });
-
-          if (ffExit === 0) {
-            await rm(finalFilePath, { force: true }).catch(() => {});
-            finalFilePath = upscaledPath;
-          }
+        // Ensure universal QuickTime / MP4 playback compatibility (avc1/hvc1 + AAC + faststart)
+        // and apply 4K/2K UHD scaling when requested.
+        if (!isAudioOnly && !controllerClosed) {
+          finalFilePath = await ensureQuickTimeMp4(
+            finalFilePath,
+            tmpDir,
+            upscaleTarget,
+            (statusLabel) => {
+              safeSend("progress", {
+                percent: 99,
+                downloadedMb: "—",
+                speedMbps: statusLabel,
+                phase: "merging",
+              });
+            },
+            (ffProc) => {
+              proc = ffProc;
+            }
+          );
         }
 
         const { size } = await stat(finalFilePath);

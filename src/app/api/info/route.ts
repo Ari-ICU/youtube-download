@@ -82,13 +82,14 @@ function shortCodec(raw: string | undefined | null): string | null {
   return root;
 }
 
-// Codec preference rank for deduplication — higher = preferred
+// Codec preference rank for sorting — prefer H.264 (avc1) & HEVC for native
+// QuickTime / universal hardware playback without transcoding overhead.
 const VIDEO_CODEC_RANK: Record<string, number> = {
-  av01: 4,
-  vp09: 3,
-  vp9:  3,
-  hev1: 2,
-  avc1: 1,
+  avc1: 4,
+  hev1: 3,
+  vp09: 2,
+  vp9:  2,
+  av01: 1,
 };
 const AUDIO_CODEC_RANK: Record<string, number> = {
   mp4a: 2,
