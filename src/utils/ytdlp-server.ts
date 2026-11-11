@@ -80,13 +80,28 @@ export function buildYtDlpArgs(url: string): string[] {
   return args;
 }
 
+export function parseUpscaleFormatId(formatId: string): {
+  rawFormatId: string;
+  upscaleTarget: "4k" | "2k" | null;
+} {
+  const m = formatId.match(/^(.+)-(4k|2k)$/i);
+  if (m) {
+    return {
+      rawFormatId: m[1],
+      upscaleTarget: m[2].toLowerCase() as "4k" | "2k",
+    };
+  }
+  return { rawFormatId: formatId, upscaleTarget: null };
+}
+
 export function buildMergeFormatSelector(formatId: string): string {
-  const baseId = formatId.replace(/-[0-9]+$/, "");
+  const { rawFormatId } = parseUpscaleFormatId(formatId);
+  const baseId = rawFormatId.replace(/-[0-9]+$/, "");
   const idPart =
-    baseId !== formatId
-      ? `${formatId}+140/${formatId}+251/${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/` +
+    baseId !== rawFormatId
+      ? `${rawFormatId}+140/${rawFormatId}+251/${rawFormatId}+bestaudio[ext=m4a]/${rawFormatId}+bestaudio/` +
         `${baseId}+140/${baseId}+251/${baseId}+bestaudio[ext=m4a]/${baseId}+bestaudio/`
-      : `${formatId}+140/${formatId}+251/${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/`;
+      : `${rawFormatId}+140/${rawFormatId}+251/${rawFormatId}+bestaudio[ext=m4a]/${rawFormatId}+bestaudio/`;
 
   return (
     idPart +

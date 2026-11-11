@@ -296,6 +296,63 @@ export async function GET(request: Request) {
       ...audioBuckets.values(),
     ];
 
+    // ── Ensure 4K (2160p) & 2K (1440p) options are always reachable ───────────
+    // When a video's native upload maxes out below 4K (e.g., 1080p episodes on
+    // YouTube, or TikTok/Facebook streams), synthesize 4K (2160p) and 2K (1440p)
+    // Ultra HD formats backed by the highest-quality native video stream so the
+    // downloader can remux + upscale to 3840×2160 / 2560×1440 via FFmpeg.
+    const videoFormats = deduped.filter((f) => f.hasVideo && !f.qualityLabel.includes("(WM)"));
+    const hasNative4K = videoFormats.some((f) => f.height >= 2160);
+    const hasNative2K = videoFormats.some((f) => f.height >= 1440 && f.height < 2160);
+
+    if (videoFormats.length > 0 && (!hasNative4K || !hasNative2K)) {
+      // Prefer the highest-resolution H.264 (avc1) stream as the upscale source
+      // for fast decoding, or fall back to the highest-resolution video stream.
+      const maxNativeHeight = Math.max(...videoFormats.map((f) => f.height));
+      const topHeightVideos = videoFormats.filter((f) => f.height === maxNativeHeight);
+      const bestSource =
+        topHeightVideos.find((f) => f.vcodec === "avc1") ??
+        topHeightVideos.sort((a, b) => (b.vbr ?? 0) - (a.vbr ?? 0))[0] ??
+        videoFormats[0];
+
+      const baseVbr = bestSource.vbr ?? 2800;
+      const baseSize = bestSource.contentLength;
+
+      if (!hasNative4K) {
+        deduped.push({
+          itag: `${bestSource.itag}-4k`,
+          qualityLabel: "4K (2160p)",
+          container: "mp4",
+          hasVideo: true,
+          hasAudio: false,
+          mimeType: "video/mp4",
+          contentLength: baseSize ? Math.round(baseSize * 2.4) : null,
+          fps: bestSource.fps,
+          height: 2160,
+          vcodec: "avc1",
+          acodec: "mp4a",
+          vbr: Math.max(Math.round(baseVbr * 2.8), 12000),
+        });
+      }
+
+      if (!hasNative2K && maxNativeHeight < 1440) {
+        deduped.push({
+          itag: `${bestSource.itag}-2k`,
+          qualityLabel: "2K (1440p)",
+          container: "mp4",
+          hasVideo: true,
+          hasAudio: false,
+          mimeType: "video/mp4",
+          contentLength: baseSize ? Math.round(baseSize * 1.6) : null,
+          fps: bestSource.fps,
+          height: 1440,
+          vcodec: "avc1",
+          acodec: "mp4a",
+          vbr: Math.max(Math.round(baseVbr * 1.8), 6500),
+        });
+      }
+    }
+
     // ── Final sort: Highest video resolution first (4K -> 2K -> 1080p -> ...), then Audio ──
     const formats = deduped.sort((a, b) => {
       // Video formats always come before audio-only formats

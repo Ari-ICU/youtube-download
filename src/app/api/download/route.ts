@@ -10,6 +10,7 @@ import {
   isYouTubeUrl,
   buildYtDlpArgs,
   buildMergeFormatSelector,
+  parseUpscaleFormatId,
 } from "@/utils/ytdlp-server";
 
 export async function GET(request: Request) {
@@ -50,7 +51,8 @@ export async function GET(request: Request) {
     const sanitizedTitle =
       title.replace(/[^\w\s\-]/g, "").trim().slice(0, 200) || "media-download";
 
-    const isAudioOnly = !merge && searchParams.get("audio") === "true";
+    const { rawFormatId, upscaleTarget } = parseUpscaleFormatId(formatId);
+    const isAudioOnly = !merge && !upscaleTarget && searchParams.get("audio") === "true";
 
     const mimeType = isAudioOnly ? "audio/mp4" : "video/mp4";
     const ext = isAudioOnly ? "m4a" : "mp4";
@@ -64,7 +66,7 @@ export async function GET(request: Request) {
     });
 
     // ── Merge or Audio Conversion path: write to temp file, then stream back ──
-    if (merge || isAudioOnly) {
+    if (merge || isAudioOnly || upscaleTarget) {
       tmpDir = await mkdtemp(join(tmpdir(), "ytdl-"));
       const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
       const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
@@ -85,12 +87,12 @@ export async function GET(request: Request) {
           : buildYtDlpArgs(decodedUrl);
 
         const ytdlpArgs: string[] = [...baseArgs, "--no-playlist"];
-        const baseId = formatId.replace(/-[0-9]+$/, "");
+        const baseId = rawFormatId.replace(/-[0-9]+$/, "");
 
         if (isAudioOnly) {
           ytdlpArgs.push(
             "-f",
-            `${formatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
+            `${rawFormatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
             "-x",
             "--audio-format",
             "m4a"
@@ -161,6 +163,42 @@ export async function GET(request: Request) {
           throw new Error("Downloaded output file was not found.");
         }
         finalFilePath = resolve(join(tmpDir, candidate));
+      }
+
+      if (upscaleTarget) {
+        const targetLong = upscaleTarget === "4k" ? 3840 : 2560;
+        const upscaledPath = resolve(join(tmpDir, `upscaled-${upscaleTarget}.mp4`));
+
+        const ffExit = await new Promise<number>((res, rej) => {
+          const ffProc = spawn("ffmpeg", [
+            "-y",
+            "-i",
+            finalFilePath,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "20",
+            "-vf",
+            `scale='if(gt(iw,ih),${targetLong},-2)':'if(gt(iw,ih),-2,${targetLong})',format=yuv420p`,
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            upscaledPath,
+          ]);
+          ytdlpProcess = ffProc;
+          ffProc.stdout?.on("data", () => {});
+          ffProc.stderr?.on("data", () => {});
+          ffProc.on("close", (c) => res(c ?? 1));
+          ffProc.on("error", rej);
+        });
+
+        if (ffExit === 0) {
+          await rm(finalFilePath, { force: true }).catch(() => {});
+          finalFilePath = upscaledPath;
+        }
       }
 
       const { size } = await stat(finalFilePath);

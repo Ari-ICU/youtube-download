@@ -10,6 +10,7 @@ import {
   isAllowedUrl,
   buildYtDlpArgs,
   buildMergeFormatSelector,
+  parseUpscaleFormatId,
 } from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
@@ -149,9 +150,11 @@ export async function GET(request: Request) {
       });
     }
 
+    const { rawFormatId } = parseUpscaleFormatId(formatId);
+
     const { stdout } = await execFileAsync(
       YTDLP,
-      [...buildYtDlpArgs(decodedUrl), "--get-url", "--no-playlist", "-f", formatId, decodedUrl],
+      [...buildYtDlpArgs(decodedUrl), "--get-url", "--no-playlist", "-f", rawFormatId, decodedUrl],
       { maxBuffer: 1 * 1024 * 1024, timeout: 15_000 }
     );
 

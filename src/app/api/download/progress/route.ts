@@ -9,6 +9,7 @@ import {
   isYouTubeUrl,
   buildYtDlpArgs,
   buildMergeFormatSelector,
+  parseUpscaleFormatId,
 } from "@/utils/ytdlp-server";
 import { registerToken } from "@/utils/token-registry";
 
@@ -143,6 +144,9 @@ export async function GET(request: Request) {
         const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
         const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
 
+        const { rawFormatId, upscaleTarget } = parseUpscaleFormatId(formatId);
+        const baseId = rawFormatId.replace(/-[0-9]+$/, "");
+
         const buildCommandArgs = (useFallback = false): string[] => {
           const baseArgs = useFallback && isYouTubeUrl(decodedUrl)
             ? [
@@ -165,17 +169,15 @@ export async function GET(request: Request) {
             "--progress",
           ];
 
-          const baseId = formatId.replace(/-[0-9]+$/, "");
-
           if (isAudioOnly) {
             args.push(
               "-f",
-              `${formatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
+              `${rawFormatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
               "-x",
               "--audio-format",
               "m4a"
             );
-          } else if (merge) {
+          } else if (merge || upscaleTarget) {
             const selector = useFallback
               ? `${baseId}+140/${baseId}+251/${baseId}+bestaudio/bestvideo[height<=2160]+bestaudio/best`
               : buildMergeFormatSelector(formatId);
@@ -192,7 +194,7 @@ export async function GET(request: Request) {
           } else {
             args.push(
               "-f",
-              `${formatId}/${baseId}/best[ext=mp4]/best`,
+              `${rawFormatId}/${baseId}/best[ext=mp4]/best`,
               "--merge-output-format",
               "mp4",
               "--remux-video",
@@ -295,6 +297,51 @@ export async function GET(request: Request) {
             throw new Error("Downloaded output file was not found.");
           }
           finalFilePath = resolve(join(tmpDir, candidate));
+        }
+
+        // If user selected a synthesized 4K (2160p) or 2K (1440p) Ultra HD stream,
+        // scale the merged source MP4 to 3840×2160 or 2560×1440 via FFmpeg.
+        if (upscaleTarget && !controllerClosed) {
+          const targetLong = upscaleTarget === "4k" ? 3840 : 2560;
+          const upscaledPath = resolve(join(tmpDir, `upscaled-${upscaleTarget}.mp4`));
+
+          safeSend("progress", {
+            percent: 99,
+            downloadedMb: "—",
+            speedMbps: `${upscaleTarget.toUpperCase()} UHD encoding…`,
+            phase: "merging",
+          });
+
+          const ffExit = await new Promise<number>((res, rej) => {
+            const ffProc = spawn("ffmpeg", [
+              "-y",
+              "-i",
+              finalFilePath,
+              "-c:v",
+              "libx264",
+              "-preset",
+              "ultrafast",
+              "-crf",
+              "20",
+              "-vf",
+              `scale='if(gt(iw,ih),${targetLong},-2)':'if(gt(iw,ih),-2,${targetLong})',format=yuv420p`,
+              "-c:a",
+              "copy",
+              "-movflags",
+              "+faststart",
+              upscaledPath,
+            ]);
+            proc = ffProc;
+            ffProc.stdout?.on("data", () => {});
+            ffProc.stderr?.on("data", () => {});
+            ffProc.on("close", (c) => res(c ?? 1));
+            ffProc.on("error", rej);
+          });
+
+          if (ffExit === 0) {
+            await rm(finalFilePath, { force: true }).catch(() => {});
+            finalFilePath = upscaledPath;
+          }
         }
 
         const { size } = await stat(finalFilePath);
