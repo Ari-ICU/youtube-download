@@ -3,7 +3,14 @@ import { mkdtemp, readdir, rm, stat } from "fs/promises";
 import { createReadStream } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
+import {
+  YTDLP,
+  FORMAT_ID_RE,
+  isAllowedUrl,
+  isYouTubeUrl,
+  buildYtDlpArgs,
+  buildMergeFormatSelector,
+} from "@/utils/ytdlp-server";
 
 export async function GET(request: Request) {
   let ytdlpProcess: ReturnType<typeof spawn> | null = null;
@@ -62,63 +69,85 @@ export async function GET(request: Request) {
       const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
       const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
 
-      const ytdlpArgs: string[] = [
-        ...buildYtDlpArgs(decodedUrl),
-        "--no-playlist",
-      ];
+      const buildCommandArgs = (useFallback = false): string[] => {
+        const baseArgs = useFallback && isYouTubeUrl(decodedUrl)
+          ? [
+              "--no-warnings",
+              "--retries",
+              "10",
+              "--fragment-retries",
+              "10",
+              "--extractor-args",
+              "youtube:player_client=android_vr",
+              "--js-runtimes",
+              "node",
+            ]
+          : buildYtDlpArgs(decodedUrl);
 
-      if (isAudioOnly) {
-        ytdlpArgs.push(
-          "-f",
-          `${formatId}/bestaudio[ext=m4a]/bestaudio`,
-          "-x",
-          "--audio-format",
-          "m4a"
-        );
-      } else {
-        const formatSelector =
-          `${formatId}+bestaudio[ext=m4a]/` +
-          `${formatId}+bestaudio/` +
-          `bestvideo[height>=2160]+bestaudio[ext=m4a]/` +
-          `bestvideo[height>=2160]+bestaudio/` +
-          `bestvideo+bestaudio[ext=m4a]/` +
-          `bestvideo+bestaudio/best`;
+        const ytdlpArgs: string[] = [...baseArgs, "--no-playlist"];
+        const baseId = formatId.replace(/-[0-9]+$/, "");
 
-        ytdlpArgs.push(
-          "-f",
-          formatSelector,
-          "--merge-output-format",
-          "mp4",
-          "--remux-video",
-          "mp4",
-          "--postprocessor-args",
-          "Merger+ffmpeg_o:-movflags +faststart"
-        );
-      }
+        if (isAudioOnly) {
+          ytdlpArgs.push(
+            "-f",
+            `${formatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
+            "-x",
+            "--audio-format",
+            "m4a"
+          );
+        } else {
+          const formatSelector = useFallback
+            ? `${baseId}+140/${baseId}+251/${baseId}+bestaudio/bestvideo[height<=2160]+bestaudio/best`
+            : buildMergeFormatSelector(formatId);
 
-      ytdlpArgs.push("-o", outTemplate, decodedUrl);
+          ytdlpArgs.push(
+            "-f",
+            formatSelector,
+            "--merge-output-format",
+            "mp4",
+            "--remux-video",
+            "mp4",
+            "--postprocessor-args",
+            "Merger+ffmpeg_o:-movflags +faststart"
+          );
+        }
 
-      await new Promise<void>((resolvePromise, rejectPromise) => {
-        ytdlpProcess = spawn(YTDLP, ytdlpArgs);
+        ytdlpArgs.push("-o", outTemplate, decodedUrl);
+        return ytdlpArgs;
+      };
 
-        // Drain stdout so the child process pipe never blocks on long 4K downloads
-        ytdlpProcess.stdout?.on("data", () => {});
+      const runMerge = (ytdlpArgs: string[]): Promise<void> =>
+        new Promise<void>((resolvePromise, rejectPromise) => {
+          ytdlpProcess = spawn(YTDLP, ytdlpArgs);
 
-        const stderrChunks: Buffer[] = [];
-        ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) =>
-          stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-        );
-        ytdlpProcess.on("close", (code) => {
-          if (code === 0) {
-            resolvePromise();
-          } else {
-            const stderr = Buffer.concat(stderrChunks).toString();
-            console.error(`yt-dlp merge exited with code ${code}:`, stderr);
-            rejectPromise(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
-          }
+          // Drain stdout so the child process pipe never blocks on long 4K downloads
+          ytdlpProcess.stdout?.on("data", () => {});
+
+          const stderrChunks: Buffer[] = [];
+          ytdlpProcess.stderr?.on("data", (chunk: Buffer | string) =>
+            stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+          );
+          ytdlpProcess.on("close", (code) => {
+            if (code === 0) {
+              resolvePromise();
+            } else {
+              const stderr = Buffer.concat(stderrChunks).toString();
+              console.error(`yt-dlp merge exited with code ${code}:`, stderr);
+              rejectPromise(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+            }
+          });
+          ytdlpProcess.on("error", rejectPromise);
         });
-        ytdlpProcess.on("error", rejectPromise);
-      });
+
+      try {
+        await runMerge(buildCommandArgs(false));
+      } catch {
+        const leftover = await readdir(tmpDir).catch(() => []);
+        await Promise.all(
+          leftover.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
+        );
+        await runMerge(buildCommandArgs(true));
+      }
 
       let finalFilePath = expectedOutPath;
       try {

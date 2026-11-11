@@ -56,7 +56,7 @@ export function isFacebookUrl(url: string): boolean {
 
 const YTDLP_YOUTUBE_ARGS = [
   "--extractor-args",
-  "youtube:player_client=default,tv",
+  "youtube:player_client=android_vr,web_safari",
   "--js-runtimes",
   "node",
 ];
@@ -78,4 +78,21 @@ export function buildYtDlpArgs(url: string): string[] {
   }
 
   return args;
+}
+
+export function buildMergeFormatSelector(formatId: string): string {
+  const baseId = formatId.replace(/-[0-9]+$/, "");
+  const idPart =
+    baseId !== formatId
+      ? `${formatId}+140/${formatId}+251/${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/` +
+        `${baseId}+140/${baseId}+251/${baseId}+bestaudio[ext=m4a]/${baseId}+bestaudio/`
+      : `${formatId}+140/${formatId}+251/${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/`;
+
+  return (
+    idPart +
+    `bestvideo[height>=2160]+bestaudio[ext=m4a]/` +
+    `bestvideo[height>=2160]+bestaudio/` +
+    `bestvideo+bestaudio[ext=m4a]/` +
+    `bestvideo+bestaudio/best`
+  );
 }

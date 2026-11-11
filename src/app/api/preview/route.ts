@@ -4,7 +4,13 @@ import { mkdtemp, readdir, rm, stat } from "fs/promises";
 import { createReadStream } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
+import {
+  YTDLP,
+  FORMAT_ID_RE,
+  isAllowedUrl,
+  buildYtDlpArgs,
+  buildMergeFormatSelector,
+} from "@/utils/ytdlp-server";
 
 const execFileAsync = promisify(execFile);
 
@@ -123,11 +129,7 @@ export async function GET(request: Request) {
     if (isClip) {
       tmpDir = await mkdtemp(join(tmpdir(), "ytpreview-"));
 
-      const formatSelector =
-        `${formatId}+bestaudio[ext=m4a]/` +
-        `${formatId}+bestaudio/` +
-        `bestvideo+bestaudio[ext=m4a]/` +
-        `bestvideo+bestaudio/best`;
+      const formatSelector = buildMergeFormatSelector(formatId);
 
       const { nodeStream, size } = await buildMergedClip(
         decodedUrl,

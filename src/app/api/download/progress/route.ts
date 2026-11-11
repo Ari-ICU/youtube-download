@@ -2,7 +2,14 @@ import { spawn } from "child_process";
 import { mkdtemp, readdir, rm, stat } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { YTDLP, FORMAT_ID_RE, isAllowedUrl, buildYtDlpArgs } from "@/utils/ytdlp-server";
+import {
+  YTDLP,
+  FORMAT_ID_RE,
+  isAllowedUrl,
+  isYouTubeUrl,
+  buildYtDlpArgs,
+  buildMergeFormatSelector,
+} from "@/utils/ytdlp-server";
 import { registerToken } from "@/utils/token-registry";
 
 // ─── Progress line parser ─────────────────────────────────────────────────────
@@ -136,107 +143,137 @@ export async function GET(request: Request) {
         const outTemplate = resolve(join(tmpDir, `output.%(ext)s`));
         const expectedOutPath = resolve(join(tmpDir, `output.${ext}`));
 
-        const ytArgs: string[] = [
-          ...buildYtDlpArgs(decodedUrl),
-          "--no-playlist",
-          "--newline",
-          "--progress",
-        ];
+        const buildCommandArgs = (useFallback = false): string[] => {
+          const baseArgs = useFallback && isYouTubeUrl(decodedUrl)
+            ? [
+                "--no-warnings",
+                "--retries",
+                "10",
+                "--fragment-retries",
+                "10",
+                "--extractor-args",
+                "youtube:player_client=android_vr",
+                "--js-runtimes",
+                "node",
+              ]
+            : buildYtDlpArgs(decodedUrl);
 
-        if (isAudioOnly) {
-          ytArgs.push(
-            "-f",
-            `${formatId}/bestaudio[ext=m4a]/bestaudio`,
-            "-x",
-            "--audio-format",
-            "m4a"
-          );
-        } else if (merge) {
-          const formatSelector =
-            `${formatId}+bestaudio[ext=m4a]/` +
-            `${formatId}+bestaudio/` +
-            `bestvideo[height>=2160]+bestaudio[ext=m4a]/` +
-            `bestvideo[height>=2160]+bestaudio/` +
-            `bestvideo+bestaudio[ext=m4a]/` +
-            `bestvideo+bestaudio/best`;
-          ytArgs.push(
-            "-f",
-            formatSelector,
-            "--merge-output-format",
-            "mp4",
-            "--remux-video",
-            "mp4",
-            "--postprocessor-args",
-            "Merger+ffmpeg_o:-movflags +faststart"
-          );
-        } else {
-          ytArgs.push(
-            "-f",
-            `${formatId}/best[ext=mp4]/best`,
-            "--merge-output-format",
-            "mp4",
-            "--remux-video",
-            "mp4"
-          );
-        }
+          const args: string[] = [
+            ...baseArgs,
+            "--no-playlist",
+            "--newline",
+            "--progress",
+          ];
 
-        ytArgs.push("-o", outTemplate, decodedUrl);
+          const baseId = formatId.replace(/-[0-9]+$/, "");
 
-        proc = spawn(YTDLP, ytArgs);
-
-        let stdoutBuf = "";
-        let stderrBuf = "";
-        let fullStderr = "";
-
-        const handleLines = (chunk: Buffer, isStderr: boolean) => {
-          if (controllerClosed) return;
-          const str = chunk.toString("utf8");
-          if (isStderr) {
-            stderrBuf += str;
-            fullStderr += str;
-            const lines = stderrBuf.split(/[\r\n]+/);
-            stderrBuf = lines.pop() ?? "";
-            for (const line of lines) {
-              const evt = parseLine(line);
-              if (evt) safeSend("progress", evt);
-            }
+          if (isAudioOnly) {
+            args.push(
+              "-f",
+              `${formatId}/${baseId}/140/251/bestaudio[ext=m4a]/bestaudio`,
+              "-x",
+              "--audio-format",
+              "m4a"
+            );
+          } else if (merge) {
+            const selector = useFallback
+              ? `${baseId}+140/${baseId}+251/${baseId}+bestaudio/bestvideo[height<=2160]+bestaudio/best`
+              : buildMergeFormatSelector(formatId);
+            args.push(
+              "-f",
+              selector,
+              "--merge-output-format",
+              "mp4",
+              "--remux-video",
+              "mp4",
+              "--postprocessor-args",
+              "Merger+ffmpeg_o:-movflags +faststart"
+            );
           } else {
-            stdoutBuf += str;
-            const lines = stdoutBuf.split(/[\r\n]+/);
-            stdoutBuf = lines.pop() ?? "";
-            for (const line of lines) {
-              const evt = parseLine(line);
-              if (evt) safeSend("progress", evt);
-            }
+            args.push(
+              "-f",
+              `${formatId}/${baseId}/best[ext=mp4]/best`,
+              "--merge-output-format",
+              "mp4",
+              "--remux-video",
+              "mp4"
+            );
           }
+
+          args.push("-o", outTemplate, decodedUrl);
+          return args;
         };
 
-        const onStdoutData = (chunk: Buffer) => handleLines(chunk, false);
-        const onStderrData = (chunk: Buffer) => handleLines(chunk, true);
+        const runAttempt = async (ytArgs: string[]): Promise<{ code: number; stderr: string }> => {
+          proc = spawn(YTDLP, ytArgs);
 
-        proc.stdout?.on("data", onStdoutData);
-        proc.stderr?.on("data", onStderrData);
+          let stdoutBuf = "";
+          let stderrBuf = "";
+          let fullStderr = "";
 
-        const exitCode = await new Promise<number>((res, rej) => {
-          proc!.on("close", (code) => {
-            proc!.stdout?.removeListener("data", onStdoutData);
-            proc!.stderr?.removeListener("data", onStderrData);
-
-            for (const rem of [stdoutBuf.trim(), stderrBuf.trim()]) {
-              if (rem) {
-                const evt = parseLine(rem);
+          const handleLines = (chunk: Buffer, isStderr: boolean) => {
+            if (controllerClosed) return;
+            const str = chunk.toString("utf8");
+            if (isStderr) {
+              stderrBuf += str;
+              fullStderr += str;
+              const lines = stderrBuf.split(/[\r\n]+/);
+              stderrBuf = lines.pop() ?? "";
+              for (const line of lines) {
+                const evt = parseLine(line);
+                if (evt) safeSend("progress", evt);
+              }
+            } else {
+              stdoutBuf += str;
+              const lines = stdoutBuf.split(/[\r\n]+/);
+              stdoutBuf = lines.pop() ?? "";
+              for (const line of lines) {
+                const evt = parseLine(line);
                 if (evt) safeSend("progress", evt);
               }
             }
-            stdoutBuf = "";
-            stderrBuf = "";
-            res(code ?? 1);
-          });
-          proc!.on("error", rej);
-        });
+          };
 
-        if (exitCode !== 0) {
-          const errMsg = fullStderr.trim() || `yt-dlp exited with code ${exitCode}`;
+          const onStdoutData = (chunk: Buffer) => handleLines(chunk, false);
+          const onStderrData = (chunk: Buffer) => handleLines(chunk, true);
+
+          proc.stdout?.on("data", onStdoutData);
+          proc.stderr?.on("data", onStderrData);
+
+          const code = await new Promise<number>((res, rej) => {
+            proc!.on("close", (exitCode) => {
+              proc!.stdout?.removeListener("data", onStdoutData);
+              proc!.stderr?.removeListener("data", onStderrData);
+
+              for (const rem of [stdoutBuf.trim(), stderrBuf.trim()]) {
+                if (rem) {
+                  const evt = parseLine(rem);
+                  if (evt) safeSend("progress", evt);
+                }
+              }
+              stdoutBuf = "";
+              stderrBuf = "";
+              res(exitCode ?? 1);
+            });
+            proc!.on("error", rej);
+          });
+
+          return { code, stderr: fullStderr };
+        };
+
+        let result = await runAttempt(buildCommandArgs(false));
+
+        if (result.code !== 0 && !controllerClosed) {
+          // Clean partial files before retry
+          const leftover = await readdir(tmpDir).catch(() => []);
+          await Promise.all(
+            leftover.map((f) => rm(join(tmpDir!, f), { force: true }).catch(() => {}))
+          );
+          result = await runAttempt(buildCommandArgs(true));
+        }
+
+        if (result.code !== 0) {
+          const errMsg = result.stderr.trim() || `yt-dlp exited with code ${result.code}`;
           console.error("yt-dlp progress error:", errMsg);
           safeSend("error", { message: errMsg });
           closeController();
